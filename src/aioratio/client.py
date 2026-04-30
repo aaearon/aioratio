@@ -271,22 +271,36 @@ class RatioClient:
     # Settings
     # ------------------------------------------------------------------
     async def _get_settings(self, serial: str, kind: str) -> Any:
+        """GET a settings document and strip the {kind}Settings envelope."""
         uid = await self.user_id()
-        return await self.transport.request(
+        data = await self.transport.request(
             "GET",
             f"/users/{uid}/chargers/{serial}/settings",
             params={"id": kind},
         )
+        if isinstance(data, dict):
+            envelope = f"{kind}Settings"
+            inner = data.get(envelope)
+            if isinstance(inner, dict):
+                return inner
+        return data
 
     async def _put_settings(
         self, serial: str, kind: str, body: dict[str, Any]
     ) -> None:
+        """PUT a settings document, wrapping in {transactionId, {kind}Settings}."""
         uid = await self.user_id()
+        envelope = f"{kind}Settings"
+        inner = body[envelope] if envelope in body else body
+        wrapped = {
+            "transactionId": _new_transaction_id(),
+            envelope: inner,
+        }
         await self.transport.request(
             "PUT",
             f"/users/{uid}/chargers/{serial}/settings",
             params={"id": kind},
-            json=body,
+            json=wrapped,
         )
 
     @staticmethod
