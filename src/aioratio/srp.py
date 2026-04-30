@@ -51,7 +51,7 @@ N_LEN: int = 384  # bytes (3072 bits)
 
 
 def int_to_padded_bytes(x: int, length: int = N_LEN) -> bytes:
-    """Big-endian, left-zero-padded byte representation of ``x``."""
+    """Big-endian, left-zero-padded fixed-length byte representation of ``x``."""
     return x.to_bytes(length, "big")
 
 
@@ -61,7 +61,21 @@ def bytes_to_int(b: bytes) -> int:
 
 
 def _PAD(x: int) -> bytes:
-    return int_to_padded_bytes(x, N_LEN)
+    """Cognito ``padHex`` — Java ``BigInteger.toByteArray()`` semantics.
+
+    Variable-length big-endian encoding with an explicit ``0x00`` sign
+    byte when the high bit of the top byte is set (so the byte string
+    always represents a non-negative ``BigInteger``). This is what
+    Amplify-JS / aws-sdk-android use for every hash input.
+    """
+    if x == 0:
+        return b"\x00"
+    h = format(x, "x")
+    if len(h) % 2 == 1:
+        h = "0" + h
+    elif h[0] in "89abcdefABCDEF":
+        h = "00" + h
+    return bytes.fromhex(h)
 
 
 def _H(data: bytes) -> bytes:
@@ -96,7 +110,7 @@ def compute_x(salt: int, pool_name: str, user_id_for_srp: str, password: str) ->
     inner = H(pool_name || ':' || user_id_for_srp || ':' || password)
     x     = H(PAD(salt) || inner)
     """
-    inner = _H(f"{pool_name}:{user_id_for_srp}:{password}".encode())
+    inner = _H(f"{pool_name}{user_id_for_srp}:{password}".encode())
     return bytes_to_int(_H(_PAD(salt) + inner))
 
 
@@ -292,7 +306,7 @@ def generate_device_verifier(device_group_key: str, device_key: str) -> dict:
     verifier = pow(g, x, N)
     return {
         "password": password,
-        "salt_b64": base64.b64encode(salt).decode(),
+        "salt_b64": base64.b64encode(_PAD(salt_int)).decode(),
         "verifier_b64": base64.b64encode(_PAD(verifier)).decode(),
     }
 

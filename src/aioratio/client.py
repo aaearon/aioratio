@@ -237,12 +237,14 @@ class RatioClient:
     async def start_charge(
         self, serial: str, vehicle_id: str | None = None
     ) -> None:
+        params: dict[str, Any] = {}
+        if vehicle_id is not None:
+            params["vehicleId"] = vehicle_id
         body: dict[str, Any] = {
             "transactionId": _new_transaction_id(),
             "command": "start-charge",
+            "startCommandParameters": params,
         }
-        if vehicle_id is not None:
-            body["startCommandParameters"] = {"vehicleId": vehicle_id}
         await self._send_command(serial, "start-charge", body)
 
     async def stop_charge(self, serial: str) -> None:

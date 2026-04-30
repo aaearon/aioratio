@@ -47,7 +47,16 @@ _REF_LEN = 384
 
 
 def _ref_pad(x: int) -> bytes:
-    return x.to_bytes(_REF_LEN, "big")
+    """padHex — Java BigInteger.toByteArray() semantics. Variable length
+    with leading 0x00 sign byte when high bit of top byte is set."""
+    if x == 0:
+        return b"\x00"
+    h = format(x, "x")
+    if len(h) % 2 == 1:
+        h = "0" + h
+    elif h[0] in "89abcdefABCDEF":
+        h = "00" + h
+    return bytes.fromhex(h)
 
 
 def _ref_h(b: bytes) -> bytes:
@@ -60,13 +69,13 @@ def _ref_h(b: bytes) -> bytes:
 
 
 def test_padding_and_constants() -> None:
-    # N parsed correctly and padded to exactly 384 bytes (3072 bits).
+    # N parsed correctly. padHex prepends 0x00 sign byte (high bit set) -> 385 bytes.
     assert srp.N == _REF_N
     assert srp.N.bit_length() == 3072
-    assert len(srp.N_BYTES) == 384
+    assert len(srp.N_BYTES) == 385
+    assert srp.N_BYTES[0] == 0x00
     assert srp.N_BYTES == _ref_pad(_REF_N)
     assert srp.g == 2
-    assert srp.N_LEN == 384
 
     # k = SHA256(PAD(N) || PAD(g)), independently computed.
     expected_k_bytes = _ref_h(_ref_pad(_REF_N) + _ref_pad(_REF_G))
@@ -110,7 +119,7 @@ def test_compute_x_uses_pool_name_not_id() -> None:
     password = "password123"
     salt = 0x1234
 
-    inner = _ref_h(f"{pool_name}:{user_id}:{password}".encode())
+    inner = _ref_h(f"{pool_name}{user_id}:{password}".encode())
     x_bytes = _ref_h(_ref_pad(salt) + inner)
     expected = int.from_bytes(x_bytes, "big")
 

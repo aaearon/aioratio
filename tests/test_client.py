@@ -204,7 +204,7 @@ async def test_start_charge_no_vehicle_id(client_with_fake_transport):
     fake.queue(None)
     await client.start_charge("SER1")
     body = fake.calls[0]["json"]
-    assert "startCommandParameters" not in body
+    assert body["startCommandParameters"] == {}
     assert body["command"] == "start-charge"
     assert len(body["transactionId"]) == 16
 

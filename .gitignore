@@ -31,3 +31,5 @@ htmlcov/
 # OS
 .DS_Store
 .claude/
+smoke.tokens.json
+scripts/__pycache__/
