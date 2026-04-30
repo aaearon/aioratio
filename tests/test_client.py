@@ -249,12 +249,14 @@ async def test_user_settings_get_and_parse(client_with_fake_transport):
 async def test_set_user_settings_put_body_dict(client_with_fake_transport):
     client, fake = client_with_fake_transport
     fake.queue(None)
-    payload = {"chargingMode": {"value": "FAST"}}
+    payload = {"chargingMode": "FAST"}
     await client.set_user_settings("S1", payload)
     call = fake.calls[0]
     assert call["method"] == "PUT"
     assert call["params"] == {"id": "user"}
-    assert call["json"] == payload
+    body = call["json"]
+    assert "transactionId" in body and len(body["transactionId"]) == 16
+    assert body["userSettings"] == payload
 
 
 async def test_set_user_settings_put_body_model(client_with_fake_transport):
@@ -267,14 +269,16 @@ async def test_set_user_settings_put_body_model(client_with_fake_transport):
     call = fake.calls[0]
     assert call["method"] == "PUT"
     body = call["json"]
+    assert "transactionId" in body
+    inner = body["userSettings"]
     # API expects camelCase keys; dataclasses.asdict produces snake_case.
     # The client must convert.
-    assert "chargingMode" in body
-    assert "charging_mode" not in body
-    assert body["chargingMode"]["value"] == "FAST"
+    assert "chargingMode" in inner
+    assert "charging_mode" not in inner
+    assert inner["chargingMode"]["value"] == "FAST"
     # Nested fields also converted (allowed_values -> allowedValues)
-    assert "allowedValues" in body["chargingMode"]
-    assert "allowed_values" not in body["chargingMode"]
+    assert "allowedValues" in inner["chargingMode"]
+    assert "allowed_values" not in inner["chargingMode"]
 
 
 async def test_set_charge_schedule_camel_case_keys(client_with_fake_transport):
@@ -290,12 +294,12 @@ async def test_set_charge_schedule_camel_case_keys(client_with_fake_transport):
         slots=[ScheduleSlot(start="22:00", end="06:00", days=["MON", "TUE"])],
     )
     await client.set_charge_schedule("S1", schedule)
-    body = fake.calls[0]["json"]
-    assert "scheduleType" in body and body["scheduleType"] == "WEEKLY"
-    assert "randomizedTimeOffsetEnabled" in body
-    assert "delayedStart" in body
-    assert "schedule_type" not in body
-    assert body["slots"][0]["days"] == ["MON", "TUE"]
+    inner = fake.calls[0]["json"]["chargeScheduleSettings"]
+    assert "scheduleType" in inner and inner["scheduleType"] == "WEEKLY"
+    assert "randomizedTimeOffsetEnabled" in inner
+    assert "delayedStart" in inner
+    assert "schedule_type" not in inner
+    assert inner["slots"][0]["days"] == ["MON", "TUE"]
 
 
 async def test_charge_schedule_get_and_set(client_with_fake_transport):
@@ -311,7 +315,28 @@ async def test_charge_schedule_get_and_set(client_with_fake_transport):
     last = fake.calls[-1]
     assert last["method"] == "PUT"
     assert last["params"] == {"id": "chargeSchedule"}
-    assert last["json"] == {"enabled": False}
+    body = last["json"]
+    assert "transactionId" in body
+    assert body["chargeScheduleSettings"] == {"enabled": False}
+
+
+async def test_user_settings_get_strips_envelope(client_with_fake_transport):
+    """Live cloud wraps the response in a userSettings envelope."""
+    client, fake = client_with_fake_transport
+    fake.queue(
+        {
+            "userSettings": {
+                "chargingMode": {
+                    "value": "PureSolar",
+                    "allowedValues": ["Smart", "SmartSolar", "PureSolar"],
+                }
+            }
+        }
+    )
+    settings = await client.user_settings("S1")
+    assert settings.charging_mode is not None
+    assert settings.charging_mode.value == "PureSolar"
+    assert settings.charging_mode.allowed_values == ["Smart", "SmartSolar", "PureSolar"]
 
 
 async def test_solar_settings_get(client_with_fake_transport):
