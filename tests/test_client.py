@@ -266,7 +266,36 @@ async def test_set_user_settings_put_body_model(client_with_fake_transport):
     await client.set_user_settings("S1", settings)
     call = fake.calls[0]
     assert call["method"] == "PUT"
-    assert isinstance(call["json"], dict)
+    body = call["json"]
+    # API expects camelCase keys; dataclasses.asdict produces snake_case.
+    # The client must convert.
+    assert "chargingMode" in body
+    assert "charging_mode" not in body
+    assert body["chargingMode"]["value"] == "FAST"
+    # Nested fields also converted (allowed_values -> allowedValues)
+    assert "allowedValues" in body["chargingMode"]
+    assert "allowed_values" not in body["chargingMode"]
+
+
+async def test_set_charge_schedule_camel_case_keys(client_with_fake_transport):
+    from aioratio.models import ChargeSchedule, ScheduleSlot
+
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    schedule = ChargeSchedule(
+        enabled=True,
+        schedule_type="WEEKLY",
+        randomized_time_offset_enabled=True,
+        delayed_start="07:00",
+        slots=[ScheduleSlot(start="22:00", end="06:00", days=["MON", "TUE"])],
+    )
+    await client.set_charge_schedule("S1", schedule)
+    body = fake.calls[0]["json"]
+    assert "scheduleType" in body and body["scheduleType"] == "WEEKLY"
+    assert "randomizedTimeOffsetEnabled" in body
+    assert "delayedStart" in body
+    assert "schedule_type" not in body
+    assert body["slots"][0]["days"] == ["MON", "TUE"]
 
 
 async def test_charge_schedule_get_and_set(client_with_fake_transport):

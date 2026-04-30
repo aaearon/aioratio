@@ -36,6 +36,19 @@ from .models import (
 from .token_store import MemoryTokenStore, TokenStore
 
 
+def _snake_to_camel(name: str) -> str:
+    parts = name.split("_")
+    return parts[0] + "".join(p.title() for p in parts[1:])
+
+
+def _to_camel_keys(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {_snake_to_camel(k): _to_camel_keys(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_camel_keys(v) for v in value]
+    return value
+
+
 def _new_transaction_id() -> str:
     return uuid.uuid4().hex[:16]
 
@@ -284,9 +297,7 @@ class RatioClient:
         if callable(to_dict):
             return to_dict()
         if dataclasses.is_dataclass(value):
-            # Best-effort fallback for dataclass models without an
-            # explicit ``to_dict`` (e.g. UserSettings/ChargeSchedule).
-            return dataclasses.asdict(value)
+            return _to_camel_keys(dataclasses.asdict(value))
         raise TypeError(f"cannot serialise {type(value).__name__} to JSON body")
 
     async def user_settings(self, serial: str) -> UserSettings:
