@@ -10,7 +10,28 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [{ name = "Tim", email = "tim@iosharp.com" }]
+keywords = ["ratio", "ev", "charger", "home-assistant", "cognito", "async"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Home Automation",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
 dependencies = ["aiohttp>=3.9"]
+
+[project.urls]
+Homepage = "https://github.com/aaearon/aioratio"
+Source = "https://github.com/aaearon/aioratio"
+Issues = "https://github.com/aaearon/aioratio/issues"
+Changelog = "https://github.com/aaearon/aioratio/releases"
 
 [project.optional-dependencies]
 dev = [
