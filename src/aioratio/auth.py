@@ -27,29 +27,7 @@ from .exceptions import (
 )
 from . import srp as _srp
 
-# ``token_store.py`` is being implemented in parallel; fall back to a
-# local-compatible definition so this module is importable today.
-try:  # pragma: no cover - fallback exercised when stub lacks symbols
-    from .token_store import TokenBundle, TokenStore  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover
-    # TODO: remove fallback once token_store.py is implemented (parallel work)
-    from dataclasses import dataclass, field
-    from .token_store import TokenStore  # type: ignore
-
-    @dataclass
-    class TokenBundle:  # type: ignore[no-redef]
-        access_token: str
-        id_token: str
-        refresh_token: str
-        expires_at: float
-        token_type: str = "Bearer"
-        device_key: str | None = None
-        device_group_key: str | None = None
-        device_password: str | None = None
-
-        @property
-        def is_expired(self) -> bool:
-            return time.time() >= self.expires_at - 30
+from .token_store import TokenBundle, TokenStore
 
 
 _DEVICE_NAME = "Home Assistant via aioratio"
@@ -63,13 +41,8 @@ def _expires_at(expires_in: int | float) -> float:
     return time.time() + float(expires_in)
 
 
-def _is_expired(bundle: "TokenBundle") -> bool:
-    """Bundle expiry check that works whether or not the bundle exposes
-    an ``is_expired`` property (the parallel agent's version may)."""
-    prop = getattr(bundle, "is_expired", None)
-    if isinstance(prop, bool):
-        return prop
-    return time.time() >= bundle.expires_at - 30
+def _is_expired(bundle: TokenBundle) -> bool:
+    return bundle.is_expired
 
 
 class CognitoSrpAuth:
