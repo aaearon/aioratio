@@ -85,11 +85,13 @@ optionally a `TokenStore`), use as an async context manager.
 
 Errors:
 
-- `RatioAuthError` — credentials invalid, refresh expired, unsupported Cognito challenge.
-- `RatioApiError` — non-2xx response from the REST API. HTTP details are included in the exception message; they are not exposed as `status`/`body` attributes.
-- `RatioRateLimitError` — HTTP 429.
-- `RatioConnectionError` — network/timeout failure.
-- `RatioError` — common base.
+- `RatioAuthError` -- credentials invalid, refresh expired, unsupported Cognito challenge.
+- `RatioApiError` -- non-2xx response from the REST API. Also raised when calling methods on a closed client.
+- `RatioRateLimitError` -- HTTP 429.
+- `RatioConnectionError` -- network/timeout failure.
+- `RatioError` -- common base.
+
+All public methods raise `RatioApiError("client is closed")` after `close()` has been called. User-supplied path segments (serial numbers, user IDs, vehicle IDs) are percent-encoded to prevent path traversal.
 
 Token storage:
 
@@ -124,8 +126,8 @@ Token storage:
 Files under `src/aioratio/`:
 
 - `client.py` — public `RatioClient` async context manager.
-- `_transport.py` — private aiohttp transport. 401 → refresh-then-retry once.
-- `auth.py` — `CognitoSrpAuth` driver: USER_SRP first-login, ConfirmDevice + UpdateDeviceStatus, REFRESH_TOKEN_AUTH (with rotation handling), DEVICE_SRP_AUTH second-login. Refresh serialised via `asyncio.Lock`.
+- `_transport.py` -- private aiohttp transport. 401 -> invalidate_access_token -> retry once.
+- `auth.py` -- `CognitoSrpAuth` driver: USER_SRP first-login, ConfirmDevice + UpdateDeviceStatus, REFRESH_TOKEN_AUTH (with rotation handling), DEVICE_SRP_AUTH second-login. Refresh serialised via `asyncio.Lock`. Accepts a `timeout` parameter (default 30s) for Cognito HTTP calls. Exposes `invalidate_access_token()` for callers to force a refresh on the next access.
 - `srp.py` — pure-Python Cognito SRP-6a (3072-bit MODP, `Caldera Derived Key` HKDF, Java-style timestamp). Uses Java `BigInteger.toByteArray()` (`padHex`) semantics throughout — variable length with `0x00` sign byte when high bit set. Both `UserSrp` and `DeviceSrp` variants.
 - `token_store.py` — `TokenBundle` dataclass + `TokenStore` ABC + `MemoryTokenStore` + `JsonFileTokenStore` (atomic write).
 - `models/` — dataclasses derived from APK DTOs: `Charger`, `ChargerOverview`, `ChargerStatus`, `UserSettings`, `ChargeSchedule`, `SolarSettings`, `Session`, `SessionHistoryPage`, `Vehicle`, plus nested types. All have a `from_dict()` classmethod tolerant of unknown fields.
@@ -153,7 +155,7 @@ uv venv --python 3.11        # or python3.11 -m venv .venv
 .venv/bin/pytest -q
 ```
 
-77 mocked tests + 11 SRP vector tests. Live smoke against a real account
+95 tests (mocked + SRP vectors + hardening). Live smoke against a real account
 lives in `scripts/smoke.py` (reads creds from `../.env`).
 
 The SRP vector tests are intentionally self-consistent and do not catch

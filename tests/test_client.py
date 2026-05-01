@@ -449,6 +449,12 @@ class _FakeAuth:
         self.calls += 1
         return self.token
 
+    async def invalidate_access_token(self) -> None:
+        bundle = await self._token_store.load()
+        if bundle is not None:
+            bundle.expires_at = 0.0
+            await self._token_store.save(bundle)
+
 
 async def _start_server(handler) -> tuple[web.AppRunner, str]:
     app = web.Application()
@@ -613,3 +619,45 @@ async def test_authorization_header_sent():
             await session.close()
     finally:
         await runner.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# Client hardening tests
+# ---------------------------------------------------------------------------
+
+
+async def test_url_encoding_special_chars(client_with_fake_transport):
+    """User-supplied serial with special chars must be URL-encoded."""
+    client, fake = client_with_fake_transport
+    fake.queue({"serialNumber": "S/1"})
+    await client.charger_overview("S/1")
+    call = fake.calls[0]
+    assert "%2F" in call["path"]
+    assert "S/1" not in call["path"]
+
+
+async def test_closed_client_raises():
+    """After close(), public methods must raise RatioApiError."""
+    bundle = _make_bundle()
+    store = MemoryTokenStore()
+    await store.save(bundle)
+    async with aiohttp.ClientSession() as session:
+        client = RatioClient(token_store=store, session=session)
+        await client.close()
+        with pytest.raises(RatioApiError, match="closed"):
+            await client.chargers()
+
+
+async def test_ensure_list_unexpected_type_raises():
+    """_ensure_list with non-list/non-dict/non-None raises RatioApiError."""
+    from aioratio.client import _ensure_list
+
+    with pytest.raises(RatioApiError, match="unexpected response type"):
+        _ensure_list("not-a-list-or-dict", "key")
+
+
+async def test_ensure_list_none_returns_empty():
+    """_ensure_list with None returns []."""
+    from aioratio.client import _ensure_list
+
+    assert _ensure_list(None, "key") == []

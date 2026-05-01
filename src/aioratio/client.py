@@ -12,6 +12,7 @@ import json as _json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional, Union
+from urllib.parse import quote as _url_quote
 
 import aiohttp
 
@@ -23,7 +24,7 @@ from .const import (
     COGNITO_REGION,
     COGNITO_USER_POOL_ID,
 )
-from .exceptions import RatioAuthError
+from .exceptions import RatioApiError, RatioAuthError
 from .models import (
     ChargeSchedule,
     Charger,
@@ -51,6 +52,10 @@ def _to_camel_keys(value: Any) -> Any:
 
 def _new_transaction_id() -> str:
     return uuid.uuid4().hex[:16]
+
+
+def _q(segment: str) -> str:
+    return _url_quote(segment, safe="")
 
 
 def _decode_jwt_payload(token: str) -> dict[str, Any]:
@@ -88,7 +93,12 @@ def _ensure_list(payload: Any, key: str) -> list[Any]:
         v = payload.get(key)
         if isinstance(v, list):
             return v
-    return []
+        return []
+    if payload is None:
+        return []
+    raise RatioApiError(
+        f"unexpected response type for {key}: {type(payload).__name__}"
+    )
 
 
 class RatioClient:
@@ -137,6 +147,7 @@ class RatioClient:
             client_id=self._client_id,
             user_pool_id=self._user_pool_id,
             region=self._region,
+            timeout=self._timeout,
         )
         self._transport = _CloudTransport(
             auth=self._auth,
@@ -154,6 +165,7 @@ class RatioClient:
     @property
     def transport(self) -> _CloudTransport:
         """Return the bound transport, creating a session if needed."""
+        self._check_closed()
         if self._transport is None:
             self._ensure_session()
         assert self._transport is not None
@@ -161,12 +173,14 @@ class RatioClient:
 
     @property
     def auth(self) -> CognitoSrpAuth:
+        self._check_closed()
         if self._auth is None:
             self._ensure_session()
         assert self._auth is not None
         return self._auth
 
     async def __aenter__(self) -> "RatioClient":
+        self._check_closed()
         self._ensure_session()
         return self
 
@@ -179,16 +193,25 @@ class RatioClient:
         self._closed = True
         if self._session is not None and not self._supplied_session:
             await self._session.close()
+        self._session = None
+        self._auth = None
+        self._transport = None
+
+    def _check_closed(self) -> None:
+        if self._closed:
+            raise RatioApiError("client is closed")
 
     # ------------------------------------------------------------------
     # Auth-related helpers
     # ------------------------------------------------------------------
     async def login(self) -> None:
         """Force a fresh login, ignoring any cached token state."""
+        self._check_closed()
         await self.auth.login()
 
     async def user_id(self) -> str:
         """Return the ``sub`` claim from the current ID token."""
+        self._check_closed()
         # ensure tokens are present (will trigger login if needed)
         await self.auth.get_access_token()
         bundle = await self._token_store.load()
@@ -204,26 +227,29 @@ class RatioClient:
     # Chargers
     # ------------------------------------------------------------------
     async def chargers(self) -> list[Charger]:
+        self._check_closed()
         uid = await self.user_id()
-        data = await self.transport.request("GET", f"/users/{uid}/chargers")
+        data = await self.transport.request("GET", f"/users/{_q(uid)}/chargers")
         items = _ensure_list(data, "chargers")
         return [Charger.from_dict(c) for c in items if isinstance(c, dict)]
 
     async def chargers_overview(self) -> list[ChargerOverview]:
+        self._check_closed()
         uid = await self.user_id()
         data = await self.transport.request(
             "GET",
-            f"/users/{uid}/chargers/status",
+            f"/users/{_q(uid)}/chargers/status",
             params={"id": "overview"},
         )
         items = _ensure_list(data, "chargers")
         return [ChargerOverview.from_dict(c) for c in items if isinstance(c, dict)]
 
     async def charger_overview(self, serial: str) -> ChargerOverview:
+        self._check_closed()
         uid = await self.user_id()
         data = await self.transport.request(
             "GET",
-            f"/users/{uid}/chargers/{serial}/status",
+            f"/users/{_q(uid)}/chargers/{_q(serial)}/status",
             params={"id": "overview"},
         )
         if not isinstance(data, dict):
@@ -242,7 +268,7 @@ class RatioClient:
         uid = await self.user_id()
         await self.transport.request(
             "PUT",
-            f"/users/{uid}/chargers/{serial}/command",
+            f"/users/{_q(uid)}/chargers/{_q(serial)}/command",
             params={"id": command_id},
             json=body,
         )
@@ -250,6 +276,7 @@ class RatioClient:
     async def start_charge(
         self, serial: str, vehicle_id: str | None = None
     ) -> None:
+        self._check_closed()
         params: dict[str, Any] = {}
         if vehicle_id is not None:
             params["vehicleId"] = vehicle_id
@@ -261,6 +288,7 @@ class RatioClient:
         await self._send_command(serial, "start-charge", body)
 
     async def stop_charge(self, serial: str) -> None:
+        self._check_closed()
         body = {
             "transactionId": _new_transaction_id(),
             "command": "stop-charge",
@@ -275,7 +303,7 @@ class RatioClient:
         uid = await self.user_id()
         data = await self.transport.request(
             "GET",
-            f"/users/{uid}/chargers/{serial}/settings",
+            f"/users/{_q(uid)}/chargers/{_q(serial)}/settings",
             params={"id": kind},
         )
         if isinstance(data, dict):
@@ -298,7 +326,7 @@ class RatioClient:
         }
         await self.transport.request(
             "PUT",
-            f"/users/{uid}/chargers/{serial}/settings",
+            f"/users/{_q(uid)}/chargers/{_q(serial)}/settings",
             params={"id": kind},
             json=wrapped,
         )
@@ -315,26 +343,31 @@ class RatioClient:
         raise TypeError(f"cannot serialise {type(value).__name__} to JSON body")
 
     async def user_settings(self, serial: str) -> UserSettings:
+        self._check_closed()
         data = await self._get_settings(serial, "user")
         return UserSettings.from_dict(data or {})
 
     async def set_user_settings(
         self, serial: str, settings: UserSettings | dict
     ) -> None:
+        self._check_closed()
         await self._put_settings(serial, "user", self._coerce_body(settings))
 
     async def charge_schedule(self, serial: str) -> ChargeSchedule:
+        self._check_closed()
         data = await self._get_settings(serial, "chargeSchedule")
         return ChargeSchedule.from_dict(data or {})
 
     async def set_charge_schedule(
         self, serial: str, schedule: ChargeSchedule | dict
     ) -> None:
+        self._check_closed()
         await self._put_settings(
             serial, "chargeSchedule", self._coerce_body(schedule)
         )
 
     async def solar_settings(self, serial: str) -> SolarSettings:
+        self._check_closed()
         data = await self._get_settings(serial, "solar")
         return SolarSettings.from_dict(data or {})
 
@@ -350,12 +383,13 @@ class RatioClient:
         serial_number: str | None = None,
         next_token: str | None = None,
     ) -> SessionHistoryPage:
+        self._check_closed()
         uid = await self.user_id()
         params: dict[str, Any] = {}
         b = _epoch_seconds(begin_time)
         e = _epoch_seconds(end_time)
         # NOTE: APK uses epoch seconds; not 100% confirmed against live
-        # cloud — TODO verify if cloud expects ms instead.
+        # cloud -- TODO verify if cloud expects ms instead.
         if b is not None:
             params["beginTime"] = b
         if e is not None:
@@ -367,7 +401,7 @@ class RatioClient:
         if next_token is not None:
             params["nextToken"] = next_token
         data = await self.transport.request(
-            "GET", f"/users/{uid}/session-history", params=params or None
+            "GET", f"/users/{_q(uid)}/session-history", params=params or None
         )
         return SessionHistoryPage.from_dict(data or {})
 
@@ -375,26 +409,29 @@ class RatioClient:
     # Vehicles
     # ------------------------------------------------------------------
     async def vehicles(self) -> list[Vehicle]:
+        self._check_closed()
         uid = await self.user_id()
-        data = await self.transport.request("GET", f"/users/{uid}/vehicles")
+        data = await self.transport.request("GET", f"/users/{_q(uid)}/vehicles")
         items = _ensure_list(data, "vehicles")
         return [Vehicle.from_dict(v) for v in items if isinstance(v, dict)]
 
     async def add_vehicle(self, vehicle: Vehicle | dict) -> Vehicle:
+        self._check_closed()
         uid = await self.user_id()
         body = self._coerce_body(vehicle)
         data = await self.transport.request(
-            "POST", f"/users/{uid}/vehicles", json=body
+            "POST", f"/users/{_q(uid)}/vehicles", json=body
         )
         if isinstance(data, dict):
             return Vehicle.from_dict(data)
-        # Some APIs echo nothing — return what was sent.
+        # Some APIs echo nothing -- return what was sent.
         return Vehicle.from_dict(body)
 
     async def remove_vehicle(self, vehicle_id: str) -> None:
+        self._check_closed()
         uid = await self.user_id()
         await self.transport.request(
-            "DELETE", f"/users/{uid}/vehicles/{vehicle_id}"
+            "DELETE", f"/users/{_q(uid)}/vehicles/{_q(vehicle_id)}"
         )
 
 

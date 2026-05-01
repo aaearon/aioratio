@@ -91,20 +91,7 @@ class _CloudTransport:
                 if retried:
                     raise RatioAuthError("authentication rejected after refresh")
                 retried = True
-                # Best-effort: expire any cached bundle so the next
-                # get_access_token() forces a refresh or re-login.
-                store = getattr(self._auth, "_token_store", None)
-                if store is not None:
-                    try:
-                        bundle = await store.load()
-                    except Exception:  # pragma: no cover - defensive
-                        bundle = None
-                    if bundle is not None:
-                        bundle.expires_at = 0.0
-                        try:
-                            await store.save(bundle)
-                        except Exception:  # pragma: no cover - defensive
-                            pass
+                await self._auth.invalidate_access_token()
                 continue
 
             if status == 429:
