@@ -41,7 +41,15 @@ class UpperLowerLimitSetting:
         out = dict(self.raw)
         if self.value is not None:
             raw_value = self.raw.get("value")
-            out["value"] = int(self.value) if isinstance(raw_value, int) else self.value
+            if type(raw_value) is int:
+                if not self.value.is_integer():
+                    raise ValueError(
+                        "UpperLowerLimitSetting.value must be integral when the "
+                        f"original raw value was an int; got {self.value!r}"
+                    )
+                out["value"] = int(self.value)
+            else:
+                out["value"] = self.value
         return out
 
 
@@ -159,15 +167,29 @@ class SolarSettings:
         wrappers, but the APK's ``SetSolarSettings`` DTO serialises each
         field as a bare ``Integer?``.
         """
+
+        def _integer_payload_value(field_name: str, value: float) -> int:
+            if not float(value).is_integer():
+                raise ValueError(f"{field_name} must be an integer-valued number, got {value!r}")
+            return int(value)
+
         out: dict[str, Any] = {}
         if self.pure_solar_starting_current is not None and self.pure_solar_starting_current.value is not None:
-            out["pureSolarStartingCurrent"] = int(self.pure_solar_starting_current.value)
+            out["pureSolarStartingCurrent"] = _integer_payload_value(
+                "pureSolarStartingCurrent", self.pure_solar_starting_current.value
+            )
         if self.smart_solar_starting_current is not None and self.smart_solar_starting_current.value is not None:
-            out["smartSolarStartingCurrent"] = int(self.smart_solar_starting_current.value)
+            out["smartSolarStartingCurrent"] = _integer_payload_value(
+                "smartSolarStartingCurrent", self.smart_solar_starting_current.value
+            )
         if self.sun_off_delay_minutes is not None and self.sun_off_delay_minutes.value is not None:
-            out["sunOffDelayMinutes"] = int(self.sun_off_delay_minutes.value)
+            out["sunOffDelayMinutes"] = _integer_payload_value(
+                "sunOffDelayMinutes", self.sun_off_delay_minutes.value
+            )
         if self.sun_on_delay_minutes is not None and self.sun_on_delay_minutes.value is not None:
-            out["sunOnDelayMinutes"] = int(self.sun_on_delay_minutes.value)
+            out["sunOnDelayMinutes"] = _integer_payload_value(
+                "sunOnDelayMinutes", self.sun_on_delay_minutes.value
+            )
         return out
 
 
@@ -326,7 +348,8 @@ class ChargeSchedule:
         for slot in self.slots:
             serialised = slot.to_dict()
             for day in (slot.days or _DAYS):
-                day_lower = _DAY_ABBR_TO_FULL.get(day, day.lower())
+                day_key = str(day).upper()
+                day_lower = _DAY_ABBR_TO_FULL.get(day_key, str(day).lower())
                 if day_lower in week:
                     week[day_lower].append(dict(serialised))
         out["weekSchedule"] = week

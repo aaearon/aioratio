@@ -673,7 +673,7 @@ async def test_ensure_list_none_returns_empty():
 async def test_set_solar_settings_put_body_dict(client_with_fake_transport):
     client, fake = client_with_fake_transport
     fake.queue(None)
-    payload = {"sunOnDelayMinutes": {"value": 5}}
+    payload = {"sunOnDelayMinutes": 5}
     await client.set_solar_settings("S1", payload)
     call = fake.calls[0]
     assert call["method"] == "PUT"

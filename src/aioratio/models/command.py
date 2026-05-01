@@ -38,7 +38,8 @@ class StartCommandParameters:
 class GrantUpgradePermissionParameters:
     """Parameters for ``grant-upgrade-permission``.
 
-    Single required field: ``firmwareUpdateJobIds: list[str]``.
+    Expected field: ``firmwareUpdateJobIds: list[str]`` (defaults to empty
+    list when absent in responses).
     """
 
     firmware_update_job_ids: list[str] = field(default_factory=list)
