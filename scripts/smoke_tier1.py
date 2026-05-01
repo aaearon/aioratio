@@ -75,12 +75,7 @@ async def main() -> None:
             print(f"sun_off_delay_minutes={got} (expected {new_value})")
 
             print(f"\n=== restore original value ({original}) ===")
-            restored = dataclasses.replace(
-                verify,
-                sun_off_delay_minutes=dataclasses.replace(
-                    verify.sun_off_delay_minutes, value=original
-                ),
-            )
+            restored = dataclasses.replace(solar, sun_off_delay_minutes=sun_off)
             await client.set_solar_settings(serial, restored)
             print("restore PUT accepted")
         else:

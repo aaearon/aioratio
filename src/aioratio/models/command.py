@@ -45,7 +45,15 @@ class GrantUpgradePermissionParameters:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        ids = data.get("firmwareUpdateJobIds") or []
+        raw_ids = data.get("firmwareUpdateJobIds")
+        if raw_ids is None:
+            ids: list[Any] = []
+        elif isinstance(raw_ids, str):
+            ids = [raw_ids]
+        elif isinstance(raw_ids, (list, tuple)):
+            ids = list(raw_ids)
+        else:
+            raise RatioApiError(f"firmwareUpdateJobIds must be a list of IDs, got {type(raw_ids).__name__}")
         return cls(firmware_update_job_ids=[str(i) for i in ids])
 
     def to_dict(self) -> dict[str, Any]:

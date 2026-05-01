@@ -122,9 +122,9 @@ class UserSettings:
             out["cableSettings"] = {"value": self.cable_settings.value}
         if self.charging_mode is not None and self.charging_mode.value is not None:
             out["chargingMode"] = {"value": self.charging_mode.value}
-        if self.maximum_charging_current is not None:
+        if self.maximum_charging_current is not None and self.maximum_charging_current.value is not None:
             out["maximumChargingCurrent"] = self.maximum_charging_current.to_dict()
-        if self.minimum_charging_current is not None:
+        if self.minimum_charging_current is not None and self.minimum_charging_current.value is not None:
             out["minimumChargingCurrent"] = self.minimum_charging_current.to_dict()
         if self.start_mode is not None and self.start_mode.value is not None:
             out["startMode"] = {"value": self.start_mode.value}
@@ -158,13 +158,13 @@ class SolarSettings:
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
-        if self.pure_solar_starting_current is not None:
+        if self.pure_solar_starting_current is not None and self.pure_solar_starting_current.value is not None:
             out["pureSolarStartingCurrent"] = self.pure_solar_starting_current.to_dict()
-        if self.smart_solar_starting_current is not None:
+        if self.smart_solar_starting_current is not None and self.smart_solar_starting_current.value is not None:
             out["smartSolarStartingCurrent"] = self.smart_solar_starting_current.to_dict()
-        if self.sun_off_delay_minutes is not None:
+        if self.sun_off_delay_minutes is not None and self.sun_off_delay_minutes.value is not None:
             out["sunOffDelayMinutes"] = self.sun_off_delay_minutes.to_dict()
-        if self.sun_on_delay_minutes is not None:
+        if self.sun_on_delay_minutes is not None and self.sun_on_delay_minutes.value is not None:
             out["sunOnDelayMinutes"] = self.sun_on_delay_minutes.to_dict()
         return out
 
