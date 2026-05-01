@@ -10,6 +10,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional, Self
 
+from ..exceptions import RatioApiError
+
+
+def _required(data: dict[str, Any], key: str) -> Any:
+    if key not in data:
+        raise RatioApiError(f"missing required field: {key}")
+    return data[key]
+
 
 @dataclass(slots=True)
 class StartCommandParameters:
@@ -67,8 +75,8 @@ class CommandRequest:
         sc = data.get("startCommandParameters")
         gp = data.get("grantUpgradePermissionParameters")
         return cls(
-            transaction_id=data["transactionId"],
-            command=data["command"],
+            transaction_id=_required(data, "transactionId"),
+            command=_required(data, "command"),
             start_command_parameters=(
                 StartCommandParameters.from_dict(sc) if isinstance(sc, dict) else None
             ),

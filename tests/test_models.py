@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from aioratio.exceptions import RatioApiError
 from aioratio.models import (
     ChargeSchedule,
     ChargeSessionStatus,
@@ -331,3 +332,44 @@ def test_unknown_keys_tolerated_across_models():
 )
 def test_command_constants(cmd: str):
     assert isinstance(cmd, str) and "-" in cmd
+
+
+# ----- Missing required fields raise RatioApiError --------------------------
+
+
+def test_session_missing_required_raises():
+    with pytest.raises(RatioApiError, match="sessionId"):
+        Session.from_dict({})
+
+
+def test_charger_missing_required_raises():
+    with pytest.raises(RatioApiError, match="serialNumber"):
+        Charger.from_dict({})
+
+
+def test_command_request_missing_required_raises():
+    with pytest.raises(RatioApiError, match="transactionId"):
+        CommandRequest.from_dict({})
+
+
+def test_charger_overview_missing_required_raises():
+    with pytest.raises(RatioApiError, match="serialNumber"):
+        ChargerOverview.from_dict({})
+
+
+# ----- _parse_bool via ChargeSchedule ---------------------------------------
+
+
+def test_charge_schedule_parse_bool_string_false():
+    sch = ChargeSchedule.from_dict({"enabled": "false"})
+    assert sch.enabled is False
+
+
+def test_charge_schedule_parse_bool_string_true():
+    sch = ChargeSchedule.from_dict({"enabled": "true"})
+    assert sch.enabled is True
+
+
+def test_charge_schedule_parse_bool_wrapped_string_false():
+    sch = ChargeSchedule.from_dict({"enabled": {"value": "false"}})
+    assert sch.enabled is False

@@ -121,8 +121,23 @@ async def test_json_file_store_atomic_write_no_tmp_left(tmp_path) -> None:
     path = tmp_path / "tokens.json"
     store = JsonFileTokenStore(path)
     await store.save(_full_bundle())
-    leftovers = [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+    leftovers = [
+        p for p in tmp_path.iterdir()
+        if p.name.startswith(".ratio_tokens_") or p.name.endswith(".tmp")
+    ]
     assert leftovers == []
+
+
+async def test_json_file_store_no_leftover_temp_files(tmp_path) -> None:
+    """After save, no temp files with the .ratio_tokens_ prefix remain."""
+    path = tmp_path / "tokens.json"
+    store = JsonFileTokenStore(path)
+    await store.save(_full_bundle())
+    leftovers = [
+        p for p in tmp_path.iterdir()
+        if p.name.startswith(".ratio_tokens_")
+    ]
+    assert leftovers == [], f"leftover temp files: {leftovers}"
 
 
 async def test_json_file_store_file_mode_0600(tmp_path) -> None:

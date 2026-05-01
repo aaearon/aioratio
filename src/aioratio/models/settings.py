@@ -186,14 +186,29 @@ class ChargeSchedule:
             # Some payloads nest slots under another key — flatten if needed.
             slots_raw = slots_raw.get("slots", [])
         return cls(
-            enabled=bool(_unwrap_value(data.get("enabled"), False)),
+            enabled=_parse_bool(_unwrap_value(data.get("enabled"), False)),
             schedule_type=_unwrap_str(data.get("scheduleType")),
-            randomized_time_offset_enabled=bool(
+            randomized_time_offset_enabled=_parse_bool(
                 _unwrap_value(data.get("randomizedTimeOffsetEnabled"), False)
             ),
             delayed_start=_unwrap_str(data.get("delayedStart")),
             slots=[ScheduleSlot.from_dict(s) for s in slots_raw if isinstance(s, dict)],
         )
+
+
+def _parse_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lower = value.lower()
+        if lower == "true":
+            return True
+        if lower == "false":
+            return False
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
 
 
 def _as_float(v: Any) -> Optional[float]:
