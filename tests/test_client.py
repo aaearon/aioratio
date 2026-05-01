@@ -288,16 +288,20 @@ async def test_set_charge_schedule_camel_case_keys(client_with_fake_transport):
         enabled=True,
         schedule_type="WEEKLY",
         randomized_time_offset_enabled=True,
-        delayed_start="07:00",
-        slots=[ScheduleSlot(start="22:00", end="06:00", days=["MON", "TUE"])],
+        slots=[ScheduleSlot(start="22:00", end="06:00", days=["monday", "tuesday"])],
     )
     await client.set_charge_schedule("S1", schedule)
     inner = fake.calls[0]["json"]["chargeScheduleSettings"]
-    assert "scheduleType" in inner and inner["scheduleType"] == "WEEKLY"
-    assert "randomizedTimeOffsetEnabled" in inner
-    assert "delayedStart" in inner
+    assert inner["scheduleType"] == "WEEKLY"
+    assert inner["randomizedTimeOffsetEnabled"] is True
     assert "schedule_type" not in inner
-    assert inner["slots"][0]["days"] == ["MON", "TUE"]
+    assert inner["weekSchedule"]["monday"] == [
+        {"beginTimeHour": 22, "beginTimeMinute": 0, "endTimeHour": 6, "endTimeMinute": 0}
+    ]
+    assert inner["weekSchedule"]["tuesday"] == [
+        {"beginTimeHour": 22, "beginTimeMinute": 0, "endTimeHour": 6, "endTimeMinute": 0}
+    ]
+    assert inner["weekSchedule"]["wednesday"] == []
 
 
 async def test_charge_schedule_get_and_set(client_with_fake_transport):
@@ -669,7 +673,7 @@ async def test_ensure_list_none_returns_empty():
 async def test_set_solar_settings_put_body_dict(client_with_fake_transport):
     client, fake = client_with_fake_transport
     fake.queue(None)
-    payload = {"sunOnDelayMinutes": {"value": 5}}
+    payload = {"sunOnDelayMinutes": 5}
     await client.set_solar_settings("S1", payload)
     call = fake.calls[0]
     assert call["method"] == "PUT"
@@ -693,7 +697,7 @@ async def test_set_solar_settings_put_body_model(client_with_fake_transport):
     inner = fake.calls[0]["json"]["solarSettings"]
     assert "sunOnDelayMinutes" in inner
     assert "sun_on_delay_minutes" not in inner
-    assert inner["sunOnDelayMinutes"]["value"] == 5.0
+    assert inner["sunOnDelayMinutes"] == 5
 
 
 async def test_set_solar_settings_url_encodes_serial(client_with_fake_transport):

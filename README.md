@@ -17,10 +17,6 @@ directly from scripts.
 
 This is an unofficial library. Not affiliated with Ratio.
 
-## Why a separate library
-
-The previous community Home Assistant integration ([RowanRamasray/Ratio_Ev_Charger](https://github.com/RowanRamasray/Ratio_Ev_Charger)) bundled `boto3` and `warrant` inside the custom component, fused protocol logic with `homeassistant.core`, and only covered part of the API surface. `aioratio` extracts the protocol layer into a pure-async, HA-free library so any Python consumer can use it and the HA integration becomes a thin wrapper.
-
 ## Install
 
 ```bash
@@ -167,6 +163,10 @@ slipped past them. Live smoke is the source of truth.
 ## Status
 
 Early. Used in production by [`home-assistant-ratio`](https://github.com/aaearon/home-assistant-ratio). Field nullability across some models is best-effort against the decompiled APK; flag mismatches as issues.
+
+- **`set_solar_settings` HTTP 502** ([#9](https://github.com/aaearon/aioratio/issues/9)): Fixed. The cloud PUT endpoint expects flat nullable integers (`"sunOffDelayMinutes": 5`), not the nested value objects returned by GET (`{"value": 5, "isChangeAllowed": true, ...}`). `SolarSettings.to_dict()` now emits the correct PUT shape. Smoke-tested against the live API.
+- `ScheduleSlot` and `ChargeSchedule` now have explicit `to_dict()` methods for controlled serialisation.
+- `UpperLowerLimitSetting.to_dict()` now echoes back the full raw GET shape (used by `UserSettings.to_dict()`).
 
 ## License
 
