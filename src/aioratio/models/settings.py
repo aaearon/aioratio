@@ -41,7 +41,8 @@ class UpperLowerLimitSetting:
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         if self.value is not None:
-            out["value"] = self.value
+            raw_value = self.raw.get("value")
+            out["value"] = int(self.value) if isinstance(raw_value, int) else self.value
         return out
 
 
