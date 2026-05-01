@@ -19,9 +19,8 @@ from typing import Any, Optional, Self
 class UpperLowerLimitSetting:
     """Numeric setting with optional bounds.
 
-    # TODO: confirm against live payload — exact JSON shape varies per
-    # setting in the APK (sometimes wrapped in ``{"value": ..., "lower":
-    # ..., "upper": ...}``).
+    The exact JSON shape varies per setting in the APK; ``raw`` preserves
+    whatever the cloud returns so ``to_dict()`` can echo it back.
     """
 
     value: Optional[float] = None
@@ -39,7 +38,7 @@ class UpperLowerLimitSetting:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {}
+        out = dict(self.raw)
         if self.value is not None:
             raw_value = self.raw.get("value")
             out["value"] = int(self.value) if isinstance(raw_value, int) else self.value
@@ -48,10 +47,7 @@ class UpperLowerLimitSetting:
 
 @dataclass(slots=True)
 class EnumValue:
-    """Generic ``EnumDataClass<T>`` wrapper from the APK.
-
-    # TODO: confirm against live payload.
-    """
+    """Generic ``EnumDataClass<T>`` wrapper from the APK."""
 
     value: Optional[str] = None
     allowed_values: list[str] = field(default_factory=list)
@@ -175,8 +171,8 @@ class ScheduleSlot:
 
     Source: derived from ``WeekScheduleData`` in ``charger_schedule``.
 
-    # TODO: confirm against live payload — APK uses
-    # ``WeekScheduleData`` whose nested shape was not fully extracted.
+    APK uses ``WeekScheduleData`` whose nested shape was not fully
+    extracted; keys are normalised to ``start``/``end``/``days``.
     """
 
     start: Optional[str] = None
@@ -191,6 +187,15 @@ class ScheduleSlot:
             end=data.get("end") or data.get("endTime"),
             days=[str(d) for d in days],
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.start is not None:
+            out["start"] = self.start
+        if self.end is not None:
+            out["end"] = self.end
+        out["days"] = list(self.days)
+        return out
 
 
 @dataclass(slots=True)
@@ -227,6 +232,16 @@ class ChargeSchedule:
             delayed_start=_unwrap_str(data.get("delayedStart")),
             slots=[ScheduleSlot.from_dict(s) for s in slots_raw if isinstance(s, dict)],
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"enabled": self.enabled}
+        if self.schedule_type is not None:
+            out["scheduleType"] = self.schedule_type
+        out["randomizedTimeOffsetEnabled"] = self.randomized_time_offset_enabled
+        if self.delayed_start is not None:
+            out["delayedStart"] = self.delayed_start
+        out["slots"] = [s.to_dict() for s in self.slots]
+        return out
 
 
 def _parse_bool(value: Any, default: bool = False) -> bool:

@@ -168,6 +168,9 @@ slipped past them. Live smoke is the source of truth.
 
 Early. Used in production by [`home-assistant-ratio`](https://github.com/aaearon/home-assistant-ratio). Field nullability across some models is best-effort against the decompiled APK; flag mismatches as issues.
 
+- **`set_solar_settings` HTTP 502** ([#9](https://github.com/aaearon/aioratio/issues/9)): `UpperLowerLimitSetting.to_dict()` now echoes back the full raw GET response shape (including `isChangeAllowed`, `lowerLimit`, `upperLimit`) instead of emitting only `{"value": N}`. This is the most likely fix; if the 502 persists, the next step is mitmproxy capture of the app's actual PUT payload.
+- `ScheduleSlot` and `ChargeSchedule` now have explicit `to_dict()` methods for controlled serialisation.
+
 ## License
 
 MIT.

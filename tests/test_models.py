@@ -23,6 +23,7 @@ from aioratio.models import (
     SessionHistoryPage,
     SolarSettings,
     StartCommandParameters,
+    UpperLowerLimitSetting,
     UserSettings,
     Vehicle,
 )
@@ -373,3 +374,106 @@ def test_charge_schedule_parse_bool_string_true():
 def test_charge_schedule_parse_bool_wrapped_string_false():
     sch = ChargeSchedule.from_dict({"enabled": {"value": "false"}})
     assert sch.enabled is False
+
+
+# ----- Round-trip serialisation (to_dict preserves full shape) ---------------
+
+
+def test_upper_lower_limit_roundtrip():
+    payload = {
+        "value": 16,
+        "lowerLimit": 6,
+        "upperLimit": 32,
+        "isChangeAllowed": True,
+    }
+    setting = UpperLowerLimitSetting.from_dict(payload)
+    result = setting.to_dict()
+    assert result["value"] == 16
+    assert result["lowerLimit"] == 6
+    assert result["upperLimit"] == 32
+    assert result["isChangeAllowed"] is True
+
+
+def test_upper_lower_limit_roundtrip_preserves_int_type():
+    payload = {"value": 8, "lowerLimit": 1, "upperLimit": 20}
+    setting = UpperLowerLimitSetting.from_dict(payload)
+    setting.value = 12.0
+    result = setting.to_dict()
+    assert result["value"] == 12
+    assert isinstance(result["value"], int)
+
+
+def test_upper_lower_limit_roundtrip_no_value():
+    payload = {"lowerLimit": 0, "upperLimit": 100}
+    setting = UpperLowerLimitSetting.from_dict(payload)
+    result = setting.to_dict()
+    assert "value" not in result
+    assert result["lowerLimit"] == 0
+    assert result["upperLimit"] == 100
+
+
+def test_solar_settings_roundtrip():
+    payload = {
+        "pureSolarStartingCurrent": {
+            "value": 6,
+            "lowerLimit": 1,
+            "upperLimit": 16,
+            "isChangeAllowed": True,
+        },
+        "smartSolarStartingCurrent": {"value": 8},
+        "sunOffDelayMinutes": {"value": 5, "lowerLimit": 1, "upperLimit": 30},
+        "sunOnDelayMinutes": {"value": 5},
+    }
+    settings = SolarSettings.from_dict(payload)
+    result = settings.to_dict()
+    assert result["pureSolarStartingCurrent"]["isChangeAllowed"] is True
+    assert result["pureSolarStartingCurrent"]["value"] == 6
+    assert result["sunOffDelayMinutes"]["lowerLimit"] == 1
+
+
+def test_user_settings_roundtrip():
+    payload = {
+        "maximumChargingCurrent": {
+            "value": 16,
+            "lowerLimit": 6,
+            "upperLimit": 32,
+            "isChangeAllowed": True,
+        },
+        "minimumChargingCurrent": {"value": 6},
+    }
+    settings = UserSettings.from_dict(payload)
+    result = settings.to_dict()
+    assert result["maximumChargingCurrent"]["isChangeAllowed"] is True
+    assert result["maximumChargingCurrent"]["value"] == 16
+
+
+def test_schedule_slot_to_dict():
+    payload = {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]}
+    slot = ScheduleSlot.from_dict(payload)
+    result = slot.to_dict()
+    assert result == {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]}
+
+
+def test_schedule_slot_to_dict_alternative_keys():
+    payload = {"startTime": "23:00", "endTime": "07:00", "days": ["SAT"]}
+    slot = ScheduleSlot.from_dict(payload)
+    result = slot.to_dict()
+    assert result == {"start": "23:00", "end": "07:00", "days": ["SAT"]}
+
+
+def test_charge_schedule_to_dict():
+    payload = {
+        "enabled": {"value": True},
+        "scheduleType": {"value": "WEEKLY"},
+        "randomizedTimeOffsetEnabled": {"value": False},
+        "slots": [
+            {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]},
+        ],
+    }
+    schedule = ChargeSchedule.from_dict(payload)
+    result = schedule.to_dict()
+    assert result["enabled"] is True
+    assert result["scheduleType"] == "WEEKLY"
+    assert result["randomizedTimeOffsetEnabled"] is False
+    assert len(result["slots"]) == 1
+    assert result["slots"][0] == {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]}
