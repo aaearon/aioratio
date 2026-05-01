@@ -6,7 +6,11 @@ Source: ``vehicles/domain/model/Vehicle.java`` and
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional, Self
+try:
+    from typing import Any, Optional, Self
+except ImportError:  # Python 3.10
+    from typing import Any, Optional
+    from typing_extensions import Self
 
 
 @dataclass(slots=True)

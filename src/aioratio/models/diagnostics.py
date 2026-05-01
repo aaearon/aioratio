@@ -9,7 +9,11 @@ than raising. No ``to_dict`` is provided because these models are read-only.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional, Self
+try:
+    from typing import Any, Optional, Self
+except ImportError:  # Python 3.10
+    from typing import Any, Optional  # type: ignore[assignment]
+    from typing_extensions import Self
 
 
 @dataclass(slots=True)

@@ -6,7 +6,11 @@ Three known commands: ``start-charge``, ``stop-charge``,
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Optional, Self
+try:
+    from typing import Any, ClassVar, Optional, Self
+except ImportError:  # Python 3.10
+    from typing import Any, ClassVar, Optional
+    from typing_extensions import Self
 
 from ..exceptions import RatioApiError
 

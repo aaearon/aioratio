@@ -6,7 +6,11 @@ Sources: ``charger_history/domain/model/Session.java``,
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional, Self
+try:
+    from typing import Any, Optional, Self
+except ImportError:  # Python 3.10
+    from typing import Any, Optional
+    from typing_extensions import Self
 
 from .vehicle import Vehicle
 

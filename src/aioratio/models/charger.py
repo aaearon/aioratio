@@ -7,7 +7,11 @@ annotations were observed in the decompiled DTOs).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional, Self
+try:
+    from typing import Any, Optional, Self
+except ImportError:  # Python 3.10
+    from typing import Any, Optional
+    from typing_extensions import Self
 
 from ..exceptions import RatioApiError
 
