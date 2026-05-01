@@ -200,7 +200,12 @@ def _parse_bool(value: Any, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.lower() == "true"
+        lower = value.lower()
+        if lower == "true":
+            return True
+        if lower == "false":
+            return False
+        return default
     if isinstance(value, (int, float)):
         return bool(value)
     return default

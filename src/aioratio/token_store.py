@@ -100,18 +100,23 @@ class JsonFileTokenStore(TokenStore):
         parent = os.path.dirname(self._path) or "."
         fd, tmp_path = tempfile.mkstemp(dir=parent, prefix=".ratio_tokens_")
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            try:
+                f = os.fdopen(fd, "w", encoding="utf-8")
+            except Exception:
+                os.close(fd)
+                raise
+            with f:
                 json.dump(data, f)
                 f.flush()
                 os.fsync(f.fileno())
+            os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, self._path)
         except Exception:
             try:
                 os.unlink(tmp_path)
             except FileNotFoundError:
                 pass
             raise
-        os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, self._path)
 
     def _unlink(self) -> None:
         try:

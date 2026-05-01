@@ -121,7 +121,10 @@ async def test_json_file_store_atomic_write_no_tmp_left(tmp_path) -> None:
     path = tmp_path / "tokens.json"
     store = JsonFileTokenStore(path)
     await store.save(_full_bundle())
-    leftovers = [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+    leftovers = [
+        p for p in tmp_path.iterdir()
+        if p.name.startswith(".ratio_tokens_") or p.name.endswith(".tmp")
+    ]
     assert leftovers == []
 
 
