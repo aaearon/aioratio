@@ -21,6 +21,7 @@ from .history import Session, SessionHistoryPage, TimeData
 from .settings import (
     ChargeModeSettings,
     ChargeSchedule,
+    DelayedStartSetting,
     EnumValue,
     ScheduleSlot,
     SolarSettings,
@@ -46,6 +47,7 @@ __all__ = [
     "SolarSettings",
     "ChargeSchedule",
     "ScheduleSlot",
+    "DelayedStartSetting",
     "UpperLowerLimitSetting",
     "EnumValue",
     # command

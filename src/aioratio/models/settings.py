@@ -19,9 +19,8 @@ from typing import Any, Optional, Self
 class UpperLowerLimitSetting:
     """Numeric setting with optional bounds.
 
-    # TODO: confirm against live payload — exact JSON shape varies per
-    # setting in the APK (sometimes wrapped in ``{"value": ..., "lower":
-    # ..., "upper": ...}``).
+    The exact JSON shape varies per setting in the APK; ``raw`` preserves
+    whatever the cloud returns so ``to_dict()`` can echo it back.
     """
 
     value: Optional[float] = None
@@ -39,7 +38,7 @@ class UpperLowerLimitSetting:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {}
+        out = dict(self.raw)
         if self.value is not None:
             raw_value = self.raw.get("value")
             out["value"] = int(self.value) if isinstance(raw_value, int) else self.value
@@ -48,10 +47,7 @@ class UpperLowerLimitSetting:
 
 @dataclass(slots=True)
 class EnumValue:
-    """Generic ``EnumDataClass<T>`` wrapper from the APK.
-
-    # TODO: confirm against live payload.
-    """
+    """Generic ``EnumDataClass<T>`` wrapper from the APK."""
 
     value: Optional[str] = None
     allowed_values: list[str] = field(default_factory=list)
@@ -157,40 +153,114 @@ class SolarSettings:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Emit the PUT shape: flat nullable integers (not nested value objects).
+
+        The GET response uses ``{"value": N, "isChangeAllowed": ..., ...}``
+        wrappers, but the APK's ``SetSolarSettings`` DTO serialises each
+        field as a bare ``Integer?``.
+        """
         out: dict[str, Any] = {}
         if self.pure_solar_starting_current is not None and self.pure_solar_starting_current.value is not None:
-            out["pureSolarStartingCurrent"] = self.pure_solar_starting_current.to_dict()
+            out["pureSolarStartingCurrent"] = int(self.pure_solar_starting_current.value)
         if self.smart_solar_starting_current is not None and self.smart_solar_starting_current.value is not None:
-            out["smartSolarStartingCurrent"] = self.smart_solar_starting_current.to_dict()
+            out["smartSolarStartingCurrent"] = int(self.smart_solar_starting_current.value)
         if self.sun_off_delay_minutes is not None and self.sun_off_delay_minutes.value is not None:
-            out["sunOffDelayMinutes"] = self.sun_off_delay_minutes.to_dict()
+            out["sunOffDelayMinutes"] = int(self.sun_off_delay_minutes.value)
         if self.sun_on_delay_minutes is not None and self.sun_on_delay_minutes.value is not None:
-            out["sunOnDelayMinutes"] = self.sun_on_delay_minutes.to_dict()
+            out["sunOnDelayMinutes"] = int(self.sun_on_delay_minutes.value)
+        return out
+
+
+_DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_DAY_ABBR_TO_FULL: dict[str, str] = {
+    "MON": "monday", "TUE": "tuesday", "WED": "wednesday",
+    "THU": "thursday", "FRI": "friday", "SAT": "saturday", "SUN": "sunday",
+}
+
+
+@dataclass(slots=True)
+class DelayedStartSetting:
+    """Delayed-start configuration.
+
+    Source: ``DelayedStartSetting`` in ``charger_schedule``.
+    Fields: ``beginTimeHour`` (int), ``beginTimeMinute`` (int),
+    ``chargingMode`` (nullable enum string).
+
+    The GET response wraps the whole object in ``{"value": {...}}``
+    and each inner field in its own ``{"value": ...}`` wrapper.
+    """
+
+    begin_time_hour: int = 0
+    begin_time_minute: int = 0
+    charging_mode: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        v = data.get("value")
+        inner = v if isinstance(v, dict) else data
+        return cls(
+            begin_time_hour=int(_unwrap_value(inner.get("beginTimeHour"), 0)),
+            begin_time_minute=int(_unwrap_value(inner.get("beginTimeMinute"), 0)),
+            charging_mode=_unwrap_str(inner.get("chargingMode")),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "beginTimeHour": self.begin_time_hour,
+            "beginTimeMinute": self.begin_time_minute,
+        }
+        if self.charging_mode is not None:
+            out["chargingMode"] = self.charging_mode
         return out
 
 
 @dataclass(slots=True)
 class ScheduleSlot:
-    """Single time slot inside a weekly schedule.
+    """Single charging session inside a weekly schedule.
 
-    Source: derived from ``WeekScheduleData`` in ``charger_schedule``.
+    Source: ``ScheduledChargingSession`` in ``charger_schedule``.
+    The APK uses per-day lists of ``{beginTimeHour, beginTimeMinute,
+    endTimeHour, endTimeMinute, chargingMode?}`` objects.
 
-    # TODO: confirm against live payload — APK uses
-    # ``WeekScheduleData`` whose nested shape was not fully extracted.
+    ``start``/``end`` accept either ``"HH:MM"`` strings (convenience)
+    or pre-split hour/minute ints. ``days`` lists the days this slot
+    applies to (e.g. ``["monday", "tuesday"]``).
     """
 
     start: Optional[str] = None
     end: Optional[str] = None
     days: list[str] = field(default_factory=list)
+    charging_mode: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
         days = data.get("days") or []
+        start = data.get("start") or data.get("startTime")
+        end = data.get("end") or data.get("endTime")
+        if start is None and "beginTimeHour" in data:
+            start = f"{data['beginTimeHour']:02d}:{data.get('beginTimeMinute', 0):02d}"
+        if end is None and "endTimeHour" in data:
+            end = f"{data['endTimeHour']:02d}:{data.get('endTimeMinute', 0):02d}"
         return cls(
-            start=data.get("start") or data.get("startTime"),
-            end=data.get("end") or data.get("endTime"),
-            days=[str(d) for d in days],
+            start=start,
+            end=end,
+            days=[_DAY_ABBR_TO_FULL.get(str(d).upper(), str(d).lower()) for d in days],
+            charging_mode=data.get("chargingMode"),
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.start is not None:
+            h, m = (int(x) for x in self.start.split(":"))
+            out["beginTimeHour"] = h
+            out["beginTimeMinute"] = m
+        if self.end is not None:
+            h, m = (int(x) for x in self.end.split(":"))
+            out["endTimeHour"] = h
+            out["endTimeMinute"] = m
+        if self.charging_mode is not None:
+            out["chargingMode"] = self.charging_mode
+        return out
 
 
 @dataclass(slots=True)
@@ -199,34 +269,68 @@ class ChargeSchedule:
 
     Source: ``ChargeScheduleGetSettings.java`` /
     ``ChargeSchedulePutSettings.java``.
+
+    The GET response wraps booleans/enums in ``{"value": ...}``
+    objects and nests slots under per-day keys in ``weekSchedule``.
+    The PUT DTO expects flat booleans, a ``ScheduleType`` enum
+    string, and ``weekSchedule`` with per-day session lists.
     """
 
     enabled: bool = False
     schedule_type: Optional[str] = None
     randomized_time_offset_enabled: bool = False
-    delayed_start: Optional[str] = None
+    delayed_start: Optional[DelayedStartSetting] = None
     slots: list[ScheduleSlot] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        slots_raw = (
-            data.get("slots")
-            or data.get("weekSchedule")
-            or data.get("weekScheduleSlots")
-            or []
-        )
-        if isinstance(slots_raw, dict):
-            # Some payloads nest slots under another key — flatten if needed.
-            slots_raw = slots_raw.get("slots", [])
+        slots: list[ScheduleSlot] = []
+        week = data.get("weekSchedule")
+        if isinstance(week, dict):
+            for day in _DAYS:
+                day_slots = week.get(day) or []
+                for s in day_slots:
+                    if isinstance(s, dict):
+                        slot = ScheduleSlot.from_dict(s)
+                        if day not in slot.days:
+                            slot.days.append(day)
+                        slots.append(slot)
+        else:
+            slots_raw = data.get("slots") or data.get("weekScheduleSlots") or []
+            slots = [ScheduleSlot.from_dict(s) for s in slots_raw if isinstance(s, dict)]
+
+        ds_raw = data.get("delayedStart")
+        delayed_start: Optional[DelayedStartSetting] = None
+        if isinstance(ds_raw, dict):
+            delayed_start = DelayedStartSetting.from_dict(ds_raw)
+
         return cls(
             enabled=_parse_bool(_unwrap_value(data.get("enabled"), False)),
             schedule_type=_unwrap_str(data.get("scheduleType")),
             randomized_time_offset_enabled=_parse_bool(
                 _unwrap_value(data.get("randomizedTimeOffsetEnabled"), False)
             ),
-            delayed_start=_unwrap_str(data.get("delayedStart")),
-            slots=[ScheduleSlot.from_dict(s) for s in slots_raw if isinstance(s, dict)],
+            delayed_start=delayed_start,
+            slots=slots,
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Emit the PUT shape expected by ``ChargeSchedulePutSettings``."""
+        out: dict[str, Any] = {"enabled": self.enabled}
+        if self.schedule_type is not None:
+            out["scheduleType"] = self.schedule_type
+        out["randomizedTimeOffsetEnabled"] = self.randomized_time_offset_enabled
+        if self.delayed_start is not None:
+            out["delayedStart"] = self.delayed_start.to_dict()
+        week: dict[str, list[dict[str, Any]]] = {day: [] for day in _DAYS}
+        for slot in self.slots:
+            serialised = slot.to_dict()
+            for day in (slot.days or _DAYS):
+                day_lower = _DAY_ABBR_TO_FULL.get(day, day.lower())
+                if day_lower in week:
+                    week[day_lower].append(dict(serialised))
+        out["weekSchedule"] = week
+        return out
 
 
 def _parse_bool(value: Any, default: bool = False) -> bool:

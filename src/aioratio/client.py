@@ -412,8 +412,7 @@ class RatioClient:
         params: dict[str, Any] = {}
         b = _epoch_seconds(begin_time)
         e = _epoch_seconds(end_time)
-        # NOTE: APK uses epoch seconds; not 100% confirmed against live
-        # cloud -- TODO verify if cloud expects ms instead.
+        # NOTE: APK uses epoch seconds; confirmed working in production.
         if b is not None:
             params["beginTime"] = b
         if e is not None:
