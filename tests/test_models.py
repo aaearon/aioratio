@@ -413,6 +413,7 @@ def test_upper_lower_limit_roundtrip_no_value():
 
 
 def test_solar_settings_roundtrip():
+    """SolarSettings.to_dict() emits flat integers (PUT shape), not nested value objects."""
     payload = {
         "pureSolarStartingCurrent": {
             "value": 6,
@@ -426,9 +427,12 @@ def test_solar_settings_roundtrip():
     }
     settings = SolarSettings.from_dict(payload)
     result = settings.to_dict()
-    assert result["pureSolarStartingCurrent"]["isChangeAllowed"] is True
-    assert result["pureSolarStartingCurrent"]["value"] == 6
-    assert result["sunOffDelayMinutes"]["lowerLimit"] == 1
+    assert result == {
+        "pureSolarStartingCurrent": 6,
+        "smartSolarStartingCurrent": 8,
+        "sunOffDelayMinutes": 5,
+        "sunOnDelayMinutes": 5,
+    }
 
 
 def test_user_settings_roundtrip():

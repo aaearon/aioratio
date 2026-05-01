@@ -153,15 +153,21 @@ class SolarSettings:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Emit the PUT shape: flat nullable integers (not nested value objects).
+
+        The GET response uses ``{"value": N, "isChangeAllowed": ..., ...}``
+        wrappers, but the APK's ``SetSolarSettings`` DTO serialises each
+        field as a bare ``Integer?``.
+        """
         out: dict[str, Any] = {}
         if self.pure_solar_starting_current is not None and self.pure_solar_starting_current.value is not None:
-            out["pureSolarStartingCurrent"] = self.pure_solar_starting_current.to_dict()
+            out["pureSolarStartingCurrent"] = int(self.pure_solar_starting_current.value)
         if self.smart_solar_starting_current is not None and self.smart_solar_starting_current.value is not None:
-            out["smartSolarStartingCurrent"] = self.smart_solar_starting_current.to_dict()
+            out["smartSolarStartingCurrent"] = int(self.smart_solar_starting_current.value)
         if self.sun_off_delay_minutes is not None and self.sun_off_delay_minutes.value is not None:
-            out["sunOffDelayMinutes"] = self.sun_off_delay_minutes.to_dict()
+            out["sunOffDelayMinutes"] = int(self.sun_off_delay_minutes.value)
         if self.sun_on_delay_minutes is not None and self.sun_on_delay_minutes.value is not None:
-            out["sunOnDelayMinutes"] = self.sun_on_delay_minutes.to_dict()
+            out["sunOnDelayMinutes"] = int(self.sun_on_delay_minutes.value)
         return out
 
 

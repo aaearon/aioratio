@@ -693,7 +693,7 @@ async def test_set_solar_settings_put_body_model(client_with_fake_transport):
     inner = fake.calls[0]["json"]["solarSettings"]
     assert "sunOnDelayMinutes" in inner
     assert "sun_on_delay_minutes" not in inner
-    assert inner["sunOnDelayMinutes"]["value"] == 5.0
+    assert inner["sunOnDelayMinutes"] == 5
 
 
 async def test_set_solar_settings_url_encodes_serial(client_with_fake_transport):
