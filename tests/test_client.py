@@ -271,13 +271,11 @@ async def test_set_user_settings_put_body_model(client_with_fake_transport):
     body = call["json"]
     assert "transactionId" in body
     inner = body["userSettings"]
-    # API expects camelCase keys; dataclasses.asdict produces snake_case.
-    # The client must convert.
     assert "chargingMode" in inner
     assert "charging_mode" not in inner
     assert inner["chargingMode"]["value"] == "FAST"
-    # Nested fields also converted (allowed_values -> allowedValues)
-    assert "allowedValues" in inner["chargingMode"]
+    # Read-only fields (allowedValues, lower, upper) must not appear in PUT body
+    assert "allowedValues" not in inner["chargingMode"]
     assert "allowed_values" not in inner["chargingMode"]
 
 
@@ -661,3 +659,69 @@ async def test_ensure_list_none_returns_empty():
     from aioratio.client import _ensure_list
 
     assert _ensure_list(None, "key") == []
+
+
+# ---------------------------------------------------------------------------
+# set_solar_settings / grant_upgrade_permission
+# ---------------------------------------------------------------------------
+
+
+async def test_set_solar_settings_put_body_dict(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    payload = {"sunOnDelayMinutes": {"value": 5}}
+    await client.set_solar_settings("S1", payload)
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "/users/user-abc/chargers/S1/settings"
+    assert call["params"] == {"id": "solar"}
+    body = call["json"]
+    assert "transactionId" in body and len(body["transactionId"]) == 16
+    int(body["transactionId"], 16)
+    assert body["solarSettings"] == payload
+
+
+async def test_set_solar_settings_put_body_model(client_with_fake_transport):
+    from aioratio.models import SolarSettings, UpperLowerLimitSetting
+
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    settings = SolarSettings(
+        sun_on_delay_minutes=UpperLowerLimitSetting(value=5.0, lower=1.0, upper=30.0),
+    )
+    await client.set_solar_settings("S1", settings)
+    inner = fake.calls[0]["json"]["solarSettings"]
+    assert "sunOnDelayMinutes" in inner
+    assert "sun_on_delay_minutes" not in inner
+    assert inner["sunOnDelayMinutes"]["value"] == 5.0
+
+
+async def test_set_solar_settings_url_encodes_serial(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    await client.set_solar_settings("S/1 X", {"foo": "bar"})
+    assert fake.calls[0]["path"] == "/users/user-abc/chargers/S%2F1%20X/settings"
+
+
+async def test_grant_upgrade_permission_happy_path(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    await client.grant_upgrade_permission("SER1", ["job-1", "job-2"])
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "/users/user-abc/chargers/SER1/command"
+    assert call["params"] == {"id": "grant-upgrade-permission"}
+    body = call["json"]
+    assert body["command"] == "grant-upgrade-permission"
+    assert isinstance(body["transactionId"], str)
+    assert len(body["transactionId"]) == 16
+    int(body["transactionId"], 16)
+    assert body["grantUpgradePermissionParameters"] == {
+        "firmwareUpdateJobIds": ["job-1", "job-2"],
+    }
+
+
+async def test_grant_upgrade_permission_empty_list_raises(client_with_fake_transport):
+    client, _fake = client_with_fake_transport
+    with pytest.raises(ValueError, match="firmware_update_job_ids"):
+        await client.grant_upgrade_permission("SER1", [])

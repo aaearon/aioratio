@@ -74,10 +74,12 @@ optionally a `TokenStore`), use as an async context manager.
 | `start_charge(serial, vehicle_id=None)` | `None` | `vehicle_id` is optional but recommended; if omitted, the client sends an empty `startCommandParameters` object. |
 | `stop_charge(serial)` | `None` | |
 | `user_settings(serial)` | `UserSettings` | |
-| `set_user_settings(serial, settings)` | `None` | Accepts dataclass or dict; converts snake_case → camelCase automatically. |
+| `set_user_settings(serial, settings)` | `None` | Accepts `UserSettings` dataclass (recommended) or a pre-formed camelCase dict. |
 | `charge_schedule(serial)` | `ChargeSchedule` | |
 | `set_charge_schedule(serial, schedule)` | `None` | |
 | `solar_settings(serial)` | `SolarSettings` | |
+| `set_solar_settings(serial, settings)` | `None` | Accepts `SolarSettings` dataclass (recommended) or a pre-formed camelCase dict. |
+| `grant_upgrade_permission(serial, firmware_update_job_ids)` | `None` | Approve queued firmware update jobs by id. Raises `ValueError` if the list is empty. |
 | `session_history(...)` | `SessionHistoryPage` | Paginated; pass `next_token` to continue. |
 | `vehicles()` | `list[Vehicle]` | |
 | `add_vehicle(vehicle)` | `Vehicle` | |

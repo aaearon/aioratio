@@ -1,9 +1,7 @@
 """Command request models.
 
-Sources: ``charger/data/data_source/cloud/ChargerRequest.java``,
-``StartCommandParameters.java``, ``GrantUpgradePermissionParameters.java``,
-and the ``CHARGER_COMMAND`` sealed class which lists the three known
-commands: ``start-charge``, ``stop-charge``, ``grant-upgrade-permission``.
+Three known commands: ``start-charge``, ``stop-charge``,
+``grant-upgrade-permission``.
 """
 from __future__ import annotations
 
@@ -40,18 +38,26 @@ class StartCommandParameters:
 class GrantUpgradePermissionParameters:
     """Parameters for ``grant-upgrade-permission``.
 
-    # TODO: confirm against live payload — APK class exists but the
-    # exact field set was not enumerated.
+    Single required field: ``firmwareUpdateJobIds: list[str]``.
     """
 
-    raw: dict[str, Any] = field(default_factory=dict)
+    firmware_update_job_ids: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        return cls(raw=dict(data))
+        raw_ids = data.get("firmwareUpdateJobIds")
+        if raw_ids is None:
+            ids: list[Any] = []
+        elif isinstance(raw_ids, str):
+            ids = [raw_ids]
+        elif isinstance(raw_ids, (list, tuple)):
+            ids = list(raw_ids)
+        else:
+            raise RatioApiError(f"firmwareUpdateJobIds must be a list of IDs, got {type(raw_ids).__name__}")
+        return cls(firmware_update_job_ids=[str(i) for i in ids])
 
     def to_dict(self) -> dict[str, Any]:
-        return dict(self.raw)
+        return {"firmwareUpdateJobIds": list(self.firmware_update_job_ids)}
 
 
 @dataclass(slots=True)
