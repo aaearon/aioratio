@@ -12,13 +12,17 @@ from aioratio.models import (
     ChargeSchedule,
     ChargeSessionStatus,
     Charger,
+    ChargerDiagnostics,
     ChargerFirmwareStatus,
     ChargerOverview,
     ChargerStatus,
     ChargerStatusError,
     CommandRequest,
+    CpmsConfig,
     DelayedStartSetting,
     Indicators,
+    InstallerOcppSettings,
+    OcppFieldStatus,
     ScheduleSlot,
     Session,
     SessionHistoryPage,
@@ -591,3 +595,232 @@ def test_charge_schedule_to_dict_with_delayed_start():
         "beginTimeMinute": 0,
         "chargingMode": "Smart",
     }
+
+
+# ----- ChargerDiagnostics ---------------------------------------------------
+
+
+_DIAG_FULL = {
+    "productInformation": {
+        "connectivityController": {
+            "firmwareVersion": "1.2.3",
+            "hardwareVersion": "HW-CC-1",
+        },
+        "mainController": {
+            "firmwareVersion": "4.5.6",
+            "hardwareType": "CPC-V2",
+            "hardwareVersion": "HW-MC-2",
+            "serialNumber": "CPC-SN-001",
+        },
+        "app": {"version": "3.9.1"},
+    },
+    "networkStatus": {
+        "isTimeSynchronized": True,
+        "connectionMedium": "WIFI",
+        "wifi": {
+            "connected": True,
+            "ipv4ReportedIfConnected": True,
+            "ipv4": {"address": "192.168.1.50", "netmask": "255.255.255.0", "gateway": "192.168.1.1"},
+            "ssid": "HomeNetwork",
+            "rssi": -55,
+        },
+        "ethernet": {
+            "connected": False,
+            "ipv4ReportedIfConnected": False,
+            "ipv4": None,
+        },
+    },
+    "backendStatus": {"connected": True},
+    "ocppStatus": {
+        "connected": True,
+        "enabled": True,
+        "cpms": {"name": "Operator1", "url": "ws://ocpp.example.com/cp"},
+    },
+}
+
+
+def test_charger_diagnostics_from_dict_full():
+    d = ChargerDiagnostics.from_dict(_DIAG_FULL)
+    assert d.product_information is not None
+    pi = d.product_information
+    assert pi.main_controller is not None
+    assert pi.main_controller.serial_number == "CPC-SN-001"
+    assert pi.main_controller.hardware_type == "CPC-V2"
+    assert pi.main_controller.firmware_version == "4.5.6"
+    assert pi.connectivity_controller is not None
+    assert pi.connectivity_controller.firmware_version == "1.2.3"
+    assert pi.connectivity_controller.hardware_version == "HW-CC-1"
+
+    ns = d.network_status
+    assert ns is not None
+    assert ns.is_time_synchronized is True
+    assert ns.connection_medium == "WIFI"
+    assert ns.wifi is not None
+    assert ns.wifi.connected is True
+    assert ns.wifi.ssid == "HomeNetwork"
+    assert ns.wifi.rssi == -55
+    assert ns.wifi.ipv4 is not None
+    assert ns.wifi.ipv4.address == "192.168.1.50"
+    assert ns.ethernet is not None
+    assert ns.ethernet.connected is False
+
+    assert d.backend_status is not None
+    assert d.backend_status.connected is True
+
+    assert d.ocpp_status is not None
+    assert d.ocpp_status.connected is True
+    assert d.ocpp_status.enabled is True
+    assert d.ocpp_status.cpms_name == "Operator1"
+    assert d.ocpp_status.cpms_url == "ws://ocpp.example.com/cp"
+
+
+def test_charger_diagnostics_from_dict_empty():
+    d = ChargerDiagnostics.from_dict({})
+    assert d.product_information is None
+    assert d.network_status is None
+    assert d.backend_status is None
+    assert d.ocpp_status is None
+
+
+def test_charger_diagnostics_missing_nested_fields():
+    d = ChargerDiagnostics.from_dict({
+        "productInformation": {},
+        "networkStatus": {"connectionMedium": "ETHERNET"},
+        "backendStatus": {},
+    })
+    assert d.product_information is not None
+    assert d.product_information.main_controller is None
+    assert d.network_status is not None
+    assert d.network_status.connection_medium == "ETHERNET"
+    assert d.network_status.wifi is None
+    assert d.backend_status is not None
+    assert d.backend_status.connected is None
+
+
+# ----- CpmsConfig -----------------------------------------------------------
+
+
+def test_cpms_config_from_dict_configured_cpms_shape():
+    c = CpmsConfig.from_dict({"centralSystem": "Operator A", "url": "ws://a.example.com"})
+    assert c.central_system == "Operator A"
+    assert c.url == "ws://a.example.com"
+
+
+def test_cpms_config_from_dict_configurable_cpms_shape():
+    c = CpmsConfig.from_dict({"name": "Operator B", "url": "ws://b.example.com", "cpidType": "EV_NETWORK"})
+    assert c.central_system == "Operator B"
+    assert c.url == "ws://b.example.com"
+
+
+def test_cpms_config_to_dict():
+    c = CpmsConfig(central_system="Operator A", url="ws://a.example.com")
+    assert c.to_dict() == {"centralSystem": "Operator A", "url": "ws://a.example.com"}
+
+
+def test_cpms_config_to_dict_partial():
+    c = CpmsConfig(url="ws://a.example.com")
+    assert c.to_dict() == {"url": "ws://a.example.com"}
+
+
+# ----- InstallerOcppSettings ------------------------------------------------
+
+
+_OCPP_SETTINGS_FULL = {
+    "enabled": {
+        "value": True,
+        "isChangeAllowed": True,
+        "changeNotAllowedReason": None,
+    },
+    "cpms": {
+        "value": {"centralSystem": "Operator A", "url": "ws://a.example.com"},
+        "isChangeAllowed": True,
+        "changeNotAllowedReason": None,
+    },
+    "chargePointIdentifier": {
+        "value": "CP-001",
+        "isChangeAllowed": True,
+        "changeNotAllowedReason": None,
+        "maxLength": 48,
+    },
+}
+
+
+def test_installer_ocpp_settings_from_dict_full():
+    s = InstallerOcppSettings.from_dict(_OCPP_SETTINGS_FULL)
+    assert s.enabled is True
+    assert s.cpms is not None
+    assert s.cpms.central_system == "Operator A"
+    assert s.cpms.url == "ws://a.example.com"
+    assert s.charge_point_identifier == "CP-001"
+    assert s.charge_point_identifier_max_length == 48
+    assert s.enabled_status.is_change_allowed is True
+    assert s.cpms_status.is_change_allowed is True
+    assert s.charge_point_identifier_status.is_change_allowed is True
+
+
+def test_installer_ocpp_settings_from_dict_change_not_allowed():
+    data = {
+        "enabled": {
+            "value": True,
+            "isChangeAllowed": False,
+            "changeNotAllowedReason": "MANAGED_BY_OPERATOR",
+        },
+        "cpms": {
+            "value": None,
+            "isChangeAllowed": False,
+            "changeNotAllowedReason": "MANAGED_BY_OPERATOR",
+        },
+        "chargePointIdentifier": {
+            "value": "CP-XYZ",
+            "isChangeAllowed": False,
+            "changeNotAllowedReason": "MANAGED_BY_OPERATOR",
+            "maxLength": 64,
+        },
+    }
+    s = InstallerOcppSettings.from_dict(data)
+    assert s.enabled_status.is_change_allowed is False
+    assert s.enabled_status.change_not_allowed_reason == "MANAGED_BY_OPERATOR"
+    assert s.cpms is None
+    assert s.cpms_status.is_change_allowed is False
+    assert s.charge_point_identifier_status.is_change_allowed is False
+    assert s.charge_point_identifier_max_length == 64
+
+
+def test_installer_ocpp_settings_from_dict_empty():
+    s = InstallerOcppSettings.from_dict({})
+    assert s.enabled is None
+    assert s.cpms is None
+    assert s.charge_point_identifier is None
+    assert s.enabled_status.is_change_allowed is True
+    assert s.charge_point_identifier_max_length is None
+
+
+def test_installer_ocpp_settings_to_dict_flat():
+    s = InstallerOcppSettings(
+        enabled=True,
+        cpms=CpmsConfig(central_system="Operator A", url="ws://a.example.com"),
+        charge_point_identifier="CP-001",
+        enabled_status=OcppFieldStatus(is_change_allowed=False, change_not_allowed_reason="reason"),
+    )
+    result = s.to_dict()
+    assert result == {
+        "enabled": True,
+        "cpms": {"centralSystem": "Operator A", "url": "ws://a.example.com"},
+        "chargePointIdentifier": "CP-001",
+    }
+    assert "enabledStatus" not in result
+    assert "isChangeAllowed" not in result
+
+
+def test_installer_ocpp_settings_to_dict_partial():
+    s = InstallerOcppSettings(charge_point_identifier="NEW-CP")
+    result = s.to_dict()
+    assert result == {"chargePointIdentifier": "NEW-CP"}
+    assert "enabled" not in result
+    assert "cpms" not in result
+
+
+def test_ocpp_field_status_defaults():
+    status = OcppFieldStatus()
+    assert status.is_change_allowed is True
+    assert status.change_not_allowed_reason is None
