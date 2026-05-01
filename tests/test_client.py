@@ -271,13 +271,11 @@ async def test_set_user_settings_put_body_model(client_with_fake_transport):
     body = call["json"]
     assert "transactionId" in body
     inner = body["userSettings"]
-    # API expects camelCase keys; dataclasses.asdict produces snake_case.
-    # The client must convert.
     assert "chargingMode" in inner
     assert "charging_mode" not in inner
     assert inner["chargingMode"]["value"] == "FAST"
-    # Nested fields also converted (allowed_values -> allowedValues)
-    assert "allowedValues" in inner["chargingMode"]
+    # Read-only fields (allowedValues, lower, upper) must not appear in PUT body
+    assert "allowedValues" not in inner["chargingMode"]
     assert "allowed_values" not in inner["chargingMode"]
 
 
