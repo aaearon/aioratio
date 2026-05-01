@@ -17,10 +17,6 @@ directly from scripts.
 
 This is an unofficial library. Not affiliated with Ratio.
 
-## Why a separate library
-
-The previous community Home Assistant integration ([RowanRamasray/Ratio_Ev_Charger](https://github.com/RowanRamasray/Ratio_Ev_Charger)) bundled `boto3` and `warrant` inside the custom component, fused protocol logic with `homeassistant.core`, and only covered part of the API surface. `aioratio` extracts the protocol layer into a pure-async, HA-free library so any Python consumer can use it and the HA integration becomes a thin wrapper.
-
 ## Install
 
 ```bash

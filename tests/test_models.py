@@ -17,6 +17,7 @@ from aioratio.models import (
     ChargerStatus,
     ChargerStatusError,
     CommandRequest,
+    DelayedStartSetting,
     Indicators,
     ScheduleSlot,
     Session,
@@ -199,8 +200,85 @@ def test_charge_schedule_with_slots():
     assert sch.randomized_time_offset_enabled is False
     assert len(sch.slots) == 2
     assert all(isinstance(s, ScheduleSlot) for s in sch.slots)
-    assert sch.slots[0].days == ["MON", "TUE"]
+    assert sch.slots[0].days == ["monday", "tuesday"]
     assert sch.slots[1].start == "23:00"
+
+
+def test_charge_schedule_from_per_day_get_response():
+    """Parse the actual GET response shape with per-day weekSchedule."""
+    payload = {
+        "enabled": {"value": True},
+        "scheduleType": {"value": "WeekSchedule"},
+        "randomizedTimeOffsetEnabled": {"value": False},
+        "weekSchedule": {
+            "monday": [
+                {"beginTimeHour": 22, "beginTimeMinute": 0,
+                 "endTimeHour": 6, "endTimeMinute": 0, "chargingMode": "Smart"},
+            ],
+            "tuesday": [],
+            "wednesday": [],
+            "thursday": [],
+            "friday": [],
+            "saturday": [
+                {"beginTimeHour": 23, "beginTimeMinute": 30,
+                 "endTimeHour": 7, "endTimeMinute": 0, "chargingMode": "Smart"},
+            ],
+            "sunday": [],
+        },
+    }
+    sch = ChargeSchedule.from_dict(payload)
+    assert sch.enabled is True
+    assert sch.schedule_type == "WeekSchedule"
+    assert len(sch.slots) == 2
+    assert sch.slots[0].start == "22:00"
+    assert "monday" in sch.slots[0].days
+    assert sch.slots[0].charging_mode == "Smart"
+    assert sch.slots[1].start == "23:30"
+    assert "saturday" in sch.slots[1].days
+
+
+def test_charge_schedule_with_delayed_start():
+    """Parse delayedStart from GET response (value-wrapped inner fields)."""
+    payload = {
+        "enabled": {"value": True},
+        "scheduleType": {"value": "DelayedStart"},
+        "delayedStart": {
+            "value": {
+                "beginTimeHour": {"value": 3, "isChangeAllowed": True},
+                "beginTimeMinute": {"value": 15, "isChangeAllowed": True},
+                "chargingMode": {"value": "Smart", "isChangeAllowed": True},
+            },
+            "isChangeAllowed": True,
+        },
+    }
+    sch = ChargeSchedule.from_dict(payload)
+    assert sch.delayed_start is not None
+    assert sch.delayed_start.begin_time_hour == 3
+    assert sch.delayed_start.begin_time_minute == 15
+    assert sch.delayed_start.charging_mode == "Smart"
+
+
+def test_delayed_start_setting_to_dict():
+    ds = DelayedStartSetting(begin_time_hour=22, begin_time_minute=30,
+                             charging_mode="Smart")
+    result = ds.to_dict()
+    assert result == {
+        "beginTimeHour": 22,
+        "beginTimeMinute": 30,
+        "chargingMode": "Smart",
+    }
+
+
+def test_delayed_start_setting_from_flat_dict():
+    """Parse flat dict (PUT shape or direct construction)."""
+    ds = DelayedStartSetting.from_dict({
+        "beginTimeHour": 7,
+        "beginTimeMinute": 0,
+        "chargingMode": "PureSolar",
+    })
+    assert ds.begin_time_hour == 7
+    assert ds.begin_time_minute == 0
+    assert ds.charging_mode == "PureSolar"
 
 
 # ----- Command --------------------------------------------------------------
@@ -452,23 +530,34 @@ def test_user_settings_roundtrip():
 
 
 def test_schedule_slot_to_dict():
+    """ScheduleSlot.to_dict() emits APK ScheduledChargingSession shape."""
     payload = {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]}
     slot = ScheduleSlot.from_dict(payload)
     result = slot.to_dict()
-    assert result == {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]}
+    assert result == {"beginTimeHour": 22, "beginTimeMinute": 0,
+                      "endTimeHour": 6, "endTimeMinute": 0}
 
 
 def test_schedule_slot_to_dict_alternative_keys():
-    payload = {"startTime": "23:00", "endTime": "07:00", "days": ["SAT"]}
+    payload = {"startTime": "23:30", "endTime": "07:15", "days": ["SAT"]}
     slot = ScheduleSlot.from_dict(payload)
     result = slot.to_dict()
-    assert result == {"start": "23:00", "end": "07:00", "days": ["SAT"]}
+    assert result == {"beginTimeHour": 23, "beginTimeMinute": 30,
+                      "endTimeHour": 7, "endTimeMinute": 15}
+
+
+def test_schedule_slot_to_dict_with_charging_mode():
+    slot = ScheduleSlot(start="22:00", end="06:00", days=["monday"],
+                        charging_mode="Smart")
+    result = slot.to_dict()
+    assert result["chargingMode"] == "Smart"
 
 
 def test_charge_schedule_to_dict():
+    """ChargeSchedule.to_dict() emits per-day weekSchedule for PUT."""
     payload = {
         "enabled": {"value": True},
-        "scheduleType": {"value": "WEEKLY"},
+        "scheduleType": {"value": "WeekSchedule"},
         "randomizedTimeOffsetEnabled": {"value": False},
         "slots": [
             {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]},
@@ -477,7 +566,28 @@ def test_charge_schedule_to_dict():
     schedule = ChargeSchedule.from_dict(payload)
     result = schedule.to_dict()
     assert result["enabled"] is True
-    assert result["scheduleType"] == "WEEKLY"
+    assert result["scheduleType"] == "WeekSchedule"
     assert result["randomizedTimeOffsetEnabled"] is False
-    assert len(result["slots"]) == 1
-    assert result["slots"][0] == {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]}
+    assert "weekSchedule" in result
+    week = result["weekSchedule"]
+    assert len(week["monday"]) == 1
+    assert week["monday"][0] == {"beginTimeHour": 22, "beginTimeMinute": 0,
+                                  "endTimeHour": 6, "endTimeMinute": 0}
+    assert len(week["tuesday"]) == 1
+    assert week["wednesday"] == []
+
+
+def test_charge_schedule_to_dict_with_delayed_start():
+    schedule = ChargeSchedule(
+        enabled=True,
+        schedule_type="DelayedStart",
+        delayed_start=DelayedStartSetting(
+            begin_time_hour=7, begin_time_minute=0, charging_mode="Smart",
+        ),
+    )
+    result = schedule.to_dict()
+    assert result["delayedStart"] == {
+        "beginTimeHour": 7,
+        "beginTimeMinute": 0,
+        "chargingMode": "Smart",
+    }

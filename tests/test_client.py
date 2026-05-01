@@ -288,16 +288,20 @@ async def test_set_charge_schedule_camel_case_keys(client_with_fake_transport):
         enabled=True,
         schedule_type="WEEKLY",
         randomized_time_offset_enabled=True,
-        delayed_start="07:00",
-        slots=[ScheduleSlot(start="22:00", end="06:00", days=["MON", "TUE"])],
+        slots=[ScheduleSlot(start="22:00", end="06:00", days=["monday", "tuesday"])],
     )
     await client.set_charge_schedule("S1", schedule)
     inner = fake.calls[0]["json"]["chargeScheduleSettings"]
-    assert "scheduleType" in inner and inner["scheduleType"] == "WEEKLY"
-    assert "randomizedTimeOffsetEnabled" in inner
-    assert "delayedStart" in inner
+    assert inner["scheduleType"] == "WEEKLY"
+    assert inner["randomizedTimeOffsetEnabled"] is True
     assert "schedule_type" not in inner
-    assert inner["slots"][0]["days"] == ["MON", "TUE"]
+    assert inner["weekSchedule"]["monday"] == [
+        {"beginTimeHour": 22, "beginTimeMinute": 0, "endTimeHour": 6, "endTimeMinute": 0}
+    ]
+    assert inner["weekSchedule"]["tuesday"] == [
+        {"beginTimeHour": 22, "beginTimeMinute": 0, "endTimeHour": 6, "endTimeMinute": 0}
+    ]
+    assert inner["weekSchedule"]["wednesday"] == []
 
 
 async def test_charge_schedule_get_and_set(client_with_fake_transport):
