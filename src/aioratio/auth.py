@@ -58,6 +58,7 @@ class CognitoSrpAuth:
         client_id: str = COGNITO_CLIENT_ID,
         user_pool_id: str = COGNITO_USER_POOL_ID,
         region: str = COGNITO_REGION,
+        timeout: float = 30.0,
     ) -> None:
         self._email = email
         self._password = password
@@ -66,6 +67,7 @@ class CognitoSrpAuth:
         self._client_id = client_id
         self._user_pool_id = user_pool_id
         self._region = region
+        self._timeout = timeout
         self._lock = asyncio.Lock()
 
     @property
@@ -98,6 +100,14 @@ class CognitoSrpAuth:
     async def refresh(self, bundle: TokenBundle) -> TokenBundle:
         async with self._lock:
             return await self._refresh_locked(bundle)
+
+    async def invalidate_access_token(self) -> None:
+        """Force the next get_access_token() call to refresh."""
+        async with self._lock:
+            bundle = await self._token_store.load()
+            if bundle is not None:
+                bundle.expires_at = 0.0
+                await self._token_store.save(bundle)
 
     # ------------------------------------------------------------------
     # Internals (assume lock held)
@@ -319,7 +329,12 @@ class CognitoSrpAuth:
             "X-Amz-Target": f"AWSCognitoIdentityProviderService.{target}",
         }
         try:
-            async with self._session.post(url, headers=headers, json=body) as resp:
+            async with self._session.post(
+                url,
+                headers=headers,
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=self._timeout),
+            ) as resp:
                 status = resp.status
                 text = await resp.text()
         except aiohttp.ClientError as err:

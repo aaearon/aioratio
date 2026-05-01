@@ -393,7 +393,7 @@ async def test_cognito_error_mapping_NotAuthorized_to_RatioAuthError() -> None:
             return None
 
     class FakeSession:
-        def post(self, url: str, headers: Any = None, json: Any = None) -> FakeResp:
+        def post(self, url: str, headers: Any = None, json: Any = None, **kwargs: Any) -> FakeResp:
             return FakeResp()
 
     auth._session = FakeSession()  # type: ignore[assignment]
@@ -448,3 +448,60 @@ async def test_signature_inputs_use_user_id_for_srp_not_email(
 
     assert captured["user_id_for_srp"] == "DIFFERENT-FROM-EMAIL"
     assert captured["user_id_for_srp"] != "user@example.com"
+
+
+async def test_timeout_propagation() -> None:
+    store = FakeStore()
+    auth = CognitoSrpAuth(
+        email="u@test.com",
+        password="pw",
+        token_store=store,
+        session=None,  # type: ignore[arg-type]
+        timeout=15.0,
+    )
+    assert auth._timeout == 15.0
+
+
+async def test_timeout_default() -> None:
+    store = FakeStore()
+    auth = CognitoSrpAuth(
+        email="u@test.com",
+        password="pw",
+        token_store=store,
+        session=None,  # type: ignore[arg-type]
+    )
+    assert auth._timeout == 30.0
+
+
+async def test_invalidate_access_token() -> None:
+    bundle = TokenBundle(
+        access_token="TOK",
+        id_token="ID",
+        refresh_token="REF",
+        expires_at=time.time() + 9999,
+        token_type="Bearer",
+    )
+    store = FakeStore(bundle)
+    auth = CognitoSrpAuth(
+        email="u@test.com",
+        password="pw",
+        token_store=store,
+        session=None,  # type: ignore[arg-type]
+    )
+    await auth.invalidate_access_token()
+    reloaded = await store.load()
+    assert reloaded is not None
+    assert reloaded.expires_at == 0.0
+
+
+async def test_invalidate_access_token_no_bundle() -> None:
+    """invalidate_access_token on empty store is a no-op."""
+    store = FakeStore()
+    auth = CognitoSrpAuth(
+        email="u@test.com",
+        password="pw",
+        token_store=store,
+        session=None,  # type: ignore[arg-type]
+    )
+    await auth.invalidate_access_token()  # should not raise
+    assert await store.load() is None
