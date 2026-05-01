@@ -238,13 +238,13 @@ class ScheduleSlot:
         start = data.get("start") or data.get("startTime")
         end = data.get("end") or data.get("endTime")
         if start is None and "beginTimeHour" in data:
-            start = f"{data['beginTimeHour']}:{data.get('beginTimeMinute', 0):02d}"
+            start = f"{data['beginTimeHour']:02d}:{data.get('beginTimeMinute', 0):02d}"
         if end is None and "endTimeHour" in data:
-            end = f"{data['endTimeHour']}:{data.get('endTimeMinute', 0):02d}"
+            end = f"{data['endTimeHour']:02d}:{data.get('endTimeMinute', 0):02d}"
         return cls(
             start=start,
             end=end,
-            days=[_DAY_ABBR_TO_FULL.get(str(d), str(d).lower()) for d in days],
+            days=[_DAY_ABBR_TO_FULL.get(str(d).upper(), str(d).lower()) for d in days],
             charging_mode=data.get("chargingMode"),
         )
 
@@ -328,7 +328,7 @@ class ChargeSchedule:
             for day in (slot.days or _DAYS):
                 day_lower = _DAY_ABBR_TO_FULL.get(day, day.lower())
                 if day_lower in week:
-                    week[day_lower].append(serialised)
+                    week[day_lower].append(dict(serialised))
         out["weekSchedule"] = week
         return out
 
