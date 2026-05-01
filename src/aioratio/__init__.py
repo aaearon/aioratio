@@ -1,6 +1,8 @@
 """aioratio — async Python client for the Ratio EV Charging cloud API."""
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version as _meta_version
+
 from .client import RatioClient
 from .exceptions import (
     RatioApiError,
@@ -23,8 +25,6 @@ __all__ = [
     "MemoryTokenStore",
     "JsonFileTokenStore",
 ]
-
-from importlib.metadata import version as _meta_version, PackageNotFoundError
 
 try:
     __version__ = _meta_version("aioratio")
