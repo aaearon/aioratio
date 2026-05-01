@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aioratio"
-version = "0.2.0"
+version = "0.3.0"
 description = "Async Python client for the Ratio EV Charging cloud API"
 readme = "README.md"
 license = { text = "MIT" }
