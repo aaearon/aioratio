@@ -93,6 +93,7 @@ def _ensure_list(payload: Any, key: str) -> list[Any]:
         v = payload.get(key)
         if isinstance(v, list):
             return v
+        return []
     if payload is None:
         return []
     raise RatioApiError(
@@ -164,6 +165,7 @@ class RatioClient:
     @property
     def transport(self) -> _CloudTransport:
         """Return the bound transport, creating a session if needed."""
+        self._check_closed()
         if self._transport is None:
             self._ensure_session()
         assert self._transport is not None
@@ -171,12 +173,14 @@ class RatioClient:
 
     @property
     def auth(self) -> CognitoSrpAuth:
+        self._check_closed()
         if self._auth is None:
             self._ensure_session()
         assert self._auth is not None
         return self._auth
 
     async def __aenter__(self) -> "RatioClient":
+        self._check_closed()
         self._ensure_session()
         return self
 
