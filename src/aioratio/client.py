@@ -371,6 +371,30 @@ class RatioClient:
         data = await self._get_settings(serial, "solar")
         return SolarSettings.from_dict(data or {})
 
+    async def set_solar_settings(
+        self, serial: str, settings: SolarSettings | dict
+    ) -> None:
+        self._check_closed()
+        await self._put_settings(serial, "solar", self._coerce_body(settings))
+
+    async def grant_upgrade_permission(
+        self,
+        serial: str,
+        firmware_update_job_ids: list[str],
+    ) -> None:
+        """Grant permission to apply queued firmware update jobs."""
+        self._check_closed()
+        if not firmware_update_job_ids:
+            raise ValueError("firmware_update_job_ids must be non-empty")
+        body: dict[str, Any] = {
+            "transactionId": _new_transaction_id(),
+            "command": "grant-upgrade-permission",
+            "grantUpgradePermissionParameters": {
+                "firmwareUpdateJobIds": list(firmware_update_job_ids),
+            },
+        }
+        await self._send_command(serial, "grant-upgrade-permission", body)
+
     # ------------------------------------------------------------------
     # History
     # ------------------------------------------------------------------

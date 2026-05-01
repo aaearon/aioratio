@@ -78,6 +78,8 @@ optionally a `TokenStore`), use as an async context manager.
 | `charge_schedule(serial)` | `ChargeSchedule` | |
 | `set_charge_schedule(serial, schedule)` | `None` | |
 | `solar_settings(serial)` | `SolarSettings` | |
+| `set_solar_settings(serial, settings)` | `None` | Accepts `SolarSettings` dataclass or dict; converts snake_case → camelCase automatically. |
+| `grant_upgrade_permission(serial, firmware_update_job_ids)` | `None` | Approve queued firmware update jobs by id. Raises `ValueError` if the list is empty. |
 | `session_history(...)` | `SessionHistoryPage` | Paginated; pass `next_token` to continue. |
 | `vehicles()` | `list[Vehicle]` | |
 | `add_vehicle(vehicle)` | `Vehicle` | |
