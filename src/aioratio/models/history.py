@@ -10,6 +10,14 @@ from typing import Any, Optional, Self
 
 from .vehicle import Vehicle
 
+from ..exceptions import RatioApiError
+
+
+def _required(data: dict[str, Any], key: str) -> Any:
+    if key not in data:
+        raise RatioApiError(f"missing required field: {key}")
+    return data[key]
+
 
 @dataclass(slots=True)
 class TimeData:
@@ -52,8 +60,8 @@ class Session:
         e = data.get("end")
         v = data.get("vehicle")
         return cls(
-            session_id=data["sessionId"],
-            charger_serial_number=data["chargerSerialNumber"],
+            session_id=_required(data, "sessionId"),
+            charger_serial_number=_required(data, "chargerSerialNumber"),
             total_charging_energy=int(data.get("totalChargingEnergy", 0)),
             begin=TimeData.from_dict(b) if isinstance(b, dict) else None,
             end=TimeData.from_dict(e) if isinstance(e, dict) else None,

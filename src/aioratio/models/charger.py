@@ -9,6 +9,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional, Self
 
+from ..exceptions import RatioApiError
+
+
+def _required(data: dict[str, Any], key: str) -> Any:
+    if key not in data:
+        raise RatioApiError(f"missing required field: {key}")
+    return data[key]
+
 
 @dataclass(slots=True)
 class Charger:
@@ -22,7 +30,7 @@ class Charger:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        return cls(serial_number=data["serialNumber"])
+        return cls(serial_number=_required(data, "serialNumber"))
 
     def to_dict(self) -> dict[str, Any]:
         return {"serialNumber": self.serial_number}
@@ -201,7 +209,7 @@ class ChargerOverview:
         cfs = data.get("chargerFirmwareStatus")
         ts_raw = data.get("lastUpdatedTimestamps") or []
         return cls(
-            serial_number=data["serialNumber"],
+            serial_number=_required(data, "serialNumber"),
             cloud_connection_state=data.get("cloudConnectionState"),
             charger_status=ChargerStatus.from_dict(cs) if isinstance(cs, dict) else None,
             charge_session_status=ChargeSessionStatus.from_dict(css) if isinstance(css, dict) else None,

@@ -5,6 +5,7 @@ import abc
 import asyncio
 import json
 import os
+import tempfile
 import time
 from dataclasses import dataclass, fields
 from typing import Any
@@ -89,7 +90,6 @@ class JsonFileTokenStore(TokenStore):
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
         self._path = os.fspath(path)
-        self._tmp = self._path + ".tmp"
         self._lock = asyncio.Lock()
 
     def _read(self) -> dict[str, Any]:
@@ -97,8 +97,8 @@ class JsonFileTokenStore(TokenStore):
             return json.load(f)
 
     def _write(self, data: dict[str, Any]) -> None:
-        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-        fd = os.open(self._tmp, flags, 0o600)
+        parent = os.path.dirname(self._path) or "."
+        fd, tmp_path = tempfile.mkstemp(dir=parent, prefix=".ratio_tokens_")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(data, f)
@@ -106,12 +106,12 @@ class JsonFileTokenStore(TokenStore):
                 os.fsync(f.fileno())
         except Exception:
             try:
-                os.unlink(self._tmp)
+                os.unlink(tmp_path)
             except FileNotFoundError:
                 pass
             raise
-        os.chmod(self._tmp, 0o600)
-        os.replace(self._tmp, self._path)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, self._path)
 
     def _unlink(self) -> None:
         try:
