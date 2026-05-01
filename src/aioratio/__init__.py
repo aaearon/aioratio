@@ -24,4 +24,9 @@ __all__ = [
     "JsonFileTokenStore",
 ]
 
-__version__ = "0.1.0"
+from importlib.metadata import version as _meta_version, PackageNotFoundError
+
+try:
+    __version__ = _meta_version("aioratio")
+except PackageNotFoundError:
+    __version__ = "0.0.0"

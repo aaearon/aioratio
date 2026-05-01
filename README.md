@@ -155,7 +155,7 @@ uv venv --python 3.11        # or python3.11 -m venv .venv
 .venv/bin/pytest -q
 ```
 
-95 tests (mocked + SRP vectors + hardening). Live smoke against a real account
+Tests are run with ``pytest``. Live smoke against a real account
 lives in `scripts/smoke.py` (reads creds from `../.env`).
 
 The SRP vector tests are intentionally self-consistent and do not catch
