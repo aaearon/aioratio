@@ -42,6 +42,9 @@ class TimeData:
             user_uuid=data.get("userUuid"),
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        return {"time": self.time, "type": self.type, "userUuid": self.user_uuid}
+
 
 @dataclass(slots=True)
 class Session:
@@ -72,6 +75,17 @@ class Session:
             user_id=data.get("userId"),
             vehicle=Vehicle.from_dict(v) if isinstance(v, dict) else None,
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "sessionId": self.session_id,
+            "chargerSerialNumber": self.charger_serial_number,
+            "totalChargingEnergy": self.total_charging_energy,
+            "begin": self.begin.to_dict() if self.begin else None,
+            "end": self.end.to_dict() if self.end else None,
+            "userId": self.user_id,
+            "vehicle": self.vehicle.to_dict() if self.vehicle else None,
+        }
 
 
 @dataclass(slots=True)

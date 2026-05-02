@@ -28,6 +28,7 @@ from aioratio.models import (
     SessionHistoryPage,
     SolarSettings,
     StartCommandParameters,
+    TimeData,
     UpperLowerLimitSetting,
     UserSettings,
     Vehicle,
@@ -824,3 +825,59 @@ def test_ocpp_field_status_defaults():
     status = OcppFieldStatus()
     assert status.is_change_allowed is True
     assert status.change_not_allowed_reason is None
+
+
+# ----- Session / TimeData to_dict round-trips --------------------------------
+
+def test_time_data_to_dict():
+    td = TimeData(time=1_700_000_000, type="start", user_uuid="u-123")
+    result = td.to_dict()
+    assert result == {"time": 1_700_000_000, "type": "start", "userUuid": "u-123"}
+
+
+def test_time_data_to_dict_nulls():
+    td = TimeData(time=0)
+    result = td.to_dict()
+    assert result == {"time": 0, "type": None, "userUuid": None}
+    assert TimeData.from_dict(result).time == 0
+
+
+def test_session_to_dict_round_trip():
+    raw = {
+        "sessionId": "sess-1",
+        "chargerSerialNumber": "SN001",
+        "totalChargingEnergy": 12345,
+        "begin": {"time": 1_700_000_000, "type": None, "userUuid": None},
+        "end": {"time": 1_700_003_600, "type": None, "userUuid": None},
+        "userId": "user-42",
+        "vehicle": {
+            "vehicleId": "v-1",
+            "vehicleName": "My EV",
+            "licensePlate": None,
+            "vehicleState": None,
+        },
+    }
+    session = Session.from_dict(raw)
+    result = session.to_dict()
+    # Round-trip: deserialise the output and compare field-by-field.
+    restored = Session.from_dict(result)
+    assert restored.session_id == "sess-1"
+    assert restored.total_charging_energy == 12345
+    assert restored.begin is not None and restored.begin.time == 1_700_000_000
+    assert restored.end is not None and restored.end.time == 1_700_003_600
+    assert restored.vehicle is not None and restored.vehicle.vehicle_name == "My EV"
+
+
+def test_session_to_dict_no_vehicle():
+    session = Session(
+        session_id="s2",
+        charger_serial_number="SN002",
+        total_charging_energy=0,
+    )
+    result = session.to_dict()
+    assert result["vehicle"] is None
+    assert result["begin"] is None
+    assert result["end"] is None
+    restored = Session.from_dict(result)
+    assert restored.session_id == "s2"
+    assert restored.vehicle is None
