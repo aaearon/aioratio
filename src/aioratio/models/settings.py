@@ -12,7 +12,11 @@ raw payload can use ``raw``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional, Self
+try:
+    from typing import Any, Optional, Self
+except ImportError:  # Python 3.10
+    from typing import Any, Optional  # type: ignore[assignment]
+    from typing_extensions import Self
 
 
 @dataclass(slots=True)
@@ -353,6 +357,135 @@ class ChargeSchedule:
                 if day_lower in week:
                     week[day_lower].append(dict(serialised))
         out["weekSchedule"] = week
+        return out
+
+
+@dataclass(slots=True)
+class CpmsConfig:
+    """A CPMS entry from either the current setting or the options list.
+
+    GET ``cpms.value``: ``{centralSystem, url}`` (ConfiguredCpms).
+    List endpoint: ``{name, url, cpidType}`` (ConfigurableCpms).
+    Both shapes are accepted; ``central_system`` captures the label field.
+    """
+
+    central_system: Optional[str] = None
+    url: Optional[str] = None
+    cpid_type: Optional[str] = None  # cpidType from ConfigurableCpms options list
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CpmsConfig":
+        return cls(
+            central_system=data.get("centralSystem") or data.get("name"),
+            url=data.get("url"),
+            cpid_type=data.get("cpidType"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.central_system is not None:
+            out["centralSystem"] = self.central_system
+        if self.url is not None:
+            out["url"] = self.url
+        return out
+
+
+@dataclass(slots=True)
+class OcppFieldStatus:
+    """Metadata from ``ValueDTOWithReason`` for a single OCPP field.
+
+    Defaults to ``is_change_allowed=True`` so that entities created before the
+    first coordinator refresh are not immediately shown as unavailable. The
+    coordinator will overwrite with real data on the first successful fetch.
+    """
+
+    is_change_allowed: bool = True
+    change_not_allowed_reason: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "OcppFieldStatus":
+        return cls(
+            is_change_allowed=bool(data.get("isChangeAllowed", True)),
+            change_not_allowed_reason=_unwrap_str(data.get("changeNotAllowedReason")),
+        )
+
+
+@dataclass(slots=True)
+class InstallerOcppSettings:
+    """Installer OCPP settings.
+
+    GET shape: each field is a ``ValueDTOWithReason`` wrapper.
+    PUT shape (``to_dict``): flat — only the three writable values, no metadata.
+
+    Source: ``InstallerOcppSettings.java`` (cloud data source),
+    ``SetInstallerOcppSettings.java``, ``ChargePointIdentifier.java``.
+    """
+
+    enabled: Optional[bool] = None
+    cpms: Optional[CpmsConfig] = None
+    charge_point_identifier: Optional[str] = None
+    enabled_status: OcppFieldStatus = field(default_factory=OcppFieldStatus)
+    cpms_status: OcppFieldStatus = field(default_factory=OcppFieldStatus)
+    charge_point_identifier_status: OcppFieldStatus = field(default_factory=OcppFieldStatus)
+    charge_point_identifier_max_length: Optional[int] = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "InstallerOcppSettings":
+        enabled_raw = data.get("enabled")
+        cpms_raw = data.get("cpms")
+        cpid_raw = data.get("chargePointIdentifier")
+
+        enabled: Optional[bool] = None
+        enabled_status = OcppFieldStatus()
+        if isinstance(enabled_raw, dict):
+            v = enabled_raw.get("value")
+            enabled = bool(v) if v is not None else None
+            enabled_status = OcppFieldStatus.from_dict(enabled_raw)
+        elif enabled_raw is not None:
+            enabled = bool(enabled_raw)
+
+        cpms: Optional[CpmsConfig] = None
+        cpms_status = OcppFieldStatus()
+        if isinstance(cpms_raw, dict):
+            if "isChangeAllowed" in cpms_raw:
+                # GET shape: ValueDTOWithReason wrapper
+                v = cpms_raw.get("value")
+                cpms = CpmsConfig.from_dict(v) if isinstance(v, dict) else None
+                cpms_status = OcppFieldStatus.from_dict(cpms_raw)
+            else:
+                # Flat CpmsConfig dict (e.g. round-tripped from to_dict)
+                cpms = CpmsConfig.from_dict(cpms_raw)
+
+        charge_point_identifier: Optional[str] = None
+        cpid_status = OcppFieldStatus()
+        cpid_max_length: Optional[int] = None
+        if isinstance(cpid_raw, dict):
+            charge_point_identifier = cpid_raw.get("value")
+            cpid_status = OcppFieldStatus.from_dict(cpid_raw)
+            ml = cpid_raw.get("maxLength")
+            cpid_max_length = int(ml) if ml is not None else None
+        elif isinstance(cpid_raw, str):
+            charge_point_identifier = cpid_raw
+
+        return cls(
+            enabled=enabled,
+            cpms=cpms,
+            charge_point_identifier=charge_point_identifier,
+            enabled_status=enabled_status,
+            cpms_status=cpms_status,
+            charge_point_identifier_status=cpid_status,
+            charge_point_identifier_max_length=cpid_max_length,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Emit the flat PUT shape — only the three writable fields."""
+        out: dict[str, Any] = {}
+        if self.enabled is not None:
+            out["enabled"] = self.enabled
+        if self.cpms is not None:
+            out["cpms"] = self.cpms.to_dict()
+        if self.charge_point_identifier is not None:
+            out["chargePointIdentifier"] = self.charge_point_identifier
         return out
 
 

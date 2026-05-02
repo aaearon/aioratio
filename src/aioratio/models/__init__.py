@@ -17,12 +17,27 @@ from .command import (
     GrantUpgradePermissionParameters,
     StartCommandParameters,
 )
+from .diagnostics import (
+    BackendStatus,
+    ChargerDiagnostics,
+    ConnectivityController,
+    EthernetStatus,
+    Ipv4,
+    MainController,
+    NetworkStatus,
+    OcppDiagnosticStatus,
+    ProductInformation,
+    WifiStatus,
+)
 from .history import Session, SessionHistoryPage, TimeData
 from .settings import (
     ChargeModeSettings,
     ChargeSchedule,
+    CpmsConfig,
     DelayedStartSetting,
     EnumValue,
+    InstallerOcppSettings,
+    OcppFieldStatus,
     ScheduleSlot,
     SolarSettings,
     UpperLowerLimitSetting,
@@ -41,6 +56,17 @@ __all__ = [
     "ChargerFirmwareStatus",
     "FirmwareUpdateJob",
     "LastUpdatedTimestamp",
+    # diagnostics
+    "ChargerDiagnostics",
+    "ProductInformation",
+    "ConnectivityController",
+    "MainController",
+    "NetworkStatus",
+    "WifiStatus",
+    "EthernetStatus",
+    "Ipv4",
+    "BackendStatus",
+    "OcppDiagnosticStatus",
     # settings
     "UserSettings",
     "ChargeModeSettings",
@@ -50,6 +76,9 @@ __all__ = [
     "DelayedStartSetting",
     "UpperLowerLimitSetting",
     "EnumValue",
+    "CpmsConfig",
+    "OcppFieldStatus",
+    "InstallerOcppSettings",
     # command
     "CommandRequest",
     "StartCommandParameters",

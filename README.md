@@ -76,6 +76,10 @@ optionally a `TokenStore`), use as an async context manager.
 | `solar_settings(serial)` | `SolarSettings` | |
 | `set_solar_settings(serial, settings)` | `None` | Accepts `SolarSettings` dataclass (recommended) or a pre-formed camelCase dict. |
 | `grant_upgrade_permission(serial, firmware_update_job_ids)` | `None` | Approve queued firmware update jobs by id. Raises `ValueError` if the list is empty. |
+| `diagnostics(serial)` | `ChargerDiagnostics` | Read-only system info: hardware/firmware versions, network status (WiFi/ethernet), backend connectivity, OCPP status. |
+| `ocpp_settings(serial)` | `InstallerOcppSettings` | Read installer OCPP settings including `is_change_allowed` metadata per field. |
+| `set_ocpp_settings(serial, settings)` | `None` | Write OCPP settings (enabled, cpms, charge_point_identifier). Accepts `InstallerOcppSettings` or a flat dict. |
+| `cpms_options(serial)` | `list[CpmsConfig]` | List operator-provided CPMS choices. Returns `[]` on 403/error (operator may not expose this). |
 | `session_history(...)` | `SessionHistoryPage` | Paginated; pass `next_token` to continue. |
 | `vehicles()` | `list[Vehicle]` | |
 | `add_vehicle(vehicle)` | `Vehicle` | |
@@ -128,7 +132,7 @@ Files under `src/aioratio/`:
 - `auth.py` -- `CognitoSrpAuth` driver: USER_SRP first-login, ConfirmDevice + UpdateDeviceStatus, REFRESH_TOKEN_AUTH (with rotation handling), DEVICE_SRP_AUTH second-login. Refresh serialised via `asyncio.Lock`. Accepts a `timeout` parameter (default 30s) for Cognito HTTP calls. Exposes `invalidate_access_token()` for callers to force a refresh on the next access.
 - `srp.py` — pure-Python Cognito SRP-6a (3072-bit MODP, `Caldera Derived Key` HKDF, Java-style timestamp). Uses Java `BigInteger.toByteArray()` (`padHex`) semantics throughout — variable length with `0x00` sign byte when high bit set. Both `UserSrp` and `DeviceSrp` variants.
 - `token_store.py` — `TokenBundle` dataclass + `TokenStore` ABC + `MemoryTokenStore` + `JsonFileTokenStore` (atomic write).
-- `models/` — dataclasses derived from APK DTOs: `Charger`, `ChargerOverview`, `ChargerStatus`, `UserSettings`, `ChargeSchedule`, `SolarSettings`, `Session`, `SessionHistoryPage`, `Vehicle`, plus nested types. All have a `from_dict()` classmethod tolerant of unknown fields.
+- `models/` — dataclasses derived from APK DTOs: `Charger`, `ChargerOverview`, `ChargerStatus`, `UserSettings`, `ChargeSchedule`, `SolarSettings`, `InstallerOcppSettings`, `CpmsConfig`, `ChargerDiagnostics`, `Session`, `SessionHistoryPage`, `Vehicle`, plus nested types. All have a `from_dict()` classmethod tolerant of unknown fields. `InstallerOcppSettings.to_dict()` emits the flat PUT shape; `ChargerDiagnostics` is read-only (no `to_dict`).
 - `exceptions.py`, `const.py`.
 
 ## Cognito specifics (notes for maintainers and LLMs)
@@ -162,7 +166,7 @@ slipped past them. Live smoke is the source of truth.
 
 ## Status
 
-Early. Used in production by [`home-assistant-ratio`](https://github.com/aaearon/home-assistant-ratio). Field nullability across some models is best-effort against the decompiled APK; flag mismatches as issues.
+Early. Used in production by [`home-assistant-ratio`](https://github.com/aaearon/home-assistant-ratio) against the **Ratio Solar** charger. Field nullability across some models is best-effort against the decompiled APK; flag mismatches as issues.
 
 - **`set_solar_settings` HTTP 502** ([#9](https://github.com/aaearon/aioratio/issues/9)): Fixed. The cloud PUT endpoint expects flat nullable integers (`"sunOffDelayMinutes": 5`), not the nested value objects returned by GET (`{"value": 5, "isChangeAllowed": true, ...}`). `SolarSettings.to_dict()` now emits the correct PUT shape. Smoke-tested against the live API.
 - `ScheduleSlot` and `ChargeSchedule` now have explicit `to_dict()` methods for controlled serialisation.

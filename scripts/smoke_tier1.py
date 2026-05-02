@@ -105,6 +105,67 @@ async def main() -> None:
             if available:
                 print("  (skipping actual grant call — non-destructive smoke)")
 
+        # --- Diagnostics (read-only) ---
+        print("\n=== diagnostics GET ===")
+        try:
+            diag = await client.diagnostics(serial)
+            pi = diag.product_information
+            if pi is not None:
+                mc = pi.main_controller
+                cc = pi.connectivity_controller
+                if mc is not None:
+                    print(f"  main_controller.serial_number={mc.serial_number}")
+                    print(f"  main_controller.firmware_version={mc.firmware_version}")
+                    print(f"  main_controller.hardware_type={mc.hardware_type}")
+                    print(f"  main_controller.hardware_version={mc.hardware_version}")
+                if cc is not None:
+                    print(f"  connectivity_controller.firmware_version={cc.firmware_version}")
+                    print(f"  connectivity_controller.hardware_version={cc.hardware_version}")
+            ns = diag.network_status
+            if ns is not None:
+                print(f"  connection_medium={ns.connection_medium}")
+                if ns.wifi is not None:
+                    print(f"  wifi.ssid={ns.wifi.ssid}  rssi={ns.wifi.rssi}  connected={ns.wifi.connected}")
+                    if ns.wifi.ipv4:
+                        print(f"  wifi.ipv4={ns.wifi.ipv4.address}")
+                if ns.ethernet is not None:
+                    print(f"  ethernet.connected={ns.ethernet.connected}")
+                    if ns.ethernet.ipv4:
+                        print(f"  ethernet.ipv4={ns.ethernet.ipv4.address}")
+                print(f"  is_time_synchronized={ns.is_time_synchronized}")
+            bs = diag.backend_status
+            print(f"  backend.connected={bs.connected if bs else None}")
+            os_ = diag.ocpp_status
+            if os_ is not None:
+                print(f"  ocpp.connected={os_.connected}  enabled={os_.enabled}")
+                print(f"  ocpp.cpms_name={os_.cpms_name}  cpms_url={os_.cpms_url}")
+        except Exception as e:
+            print(f"diagnostics raised: {type(e).__name__}: {e}")
+
+        # --- OCPP settings (read-only) ---
+        print("\n=== ocpp_settings GET ===")
+        try:
+            ocpp = await client.ocpp_settings(serial)
+            print(f"  enabled={ocpp.enabled}  (is_change_allowed={ocpp.enabled_status.is_change_allowed})")
+            print(f"  cpms={ocpp.cpms}  (is_change_allowed={ocpp.cpms_status.is_change_allowed})")
+            print(f"  charge_point_identifier={ocpp.charge_point_identifier!r}")
+            print(f"  cpid_max_length={ocpp.charge_point_identifier_max_length}")
+            print(f"  cpid_is_change_allowed={ocpp.charge_point_identifier_status.is_change_allowed}")
+            if not ocpp.charge_point_identifier_status.is_change_allowed:
+                print(f"  cpid_change_not_allowed_reason={ocpp.charge_point_identifier_status.change_not_allowed_reason}")
+        except Exception as e:
+            print(f"ocpp_settings raised: {type(e).__name__}: {e}")
+
+        # --- CPMS options (read-only) ---
+        print("\n=== cpms_options GET ===")
+        try:
+            options = await client.cpms_options(serial)
+            print(f"  cpms_options count={len(options)}")
+            for opt in options:
+                print(f"    {opt.central_system!r}  {opt.url!r}")
+        except Exception as e:
+            print(f"cpms_options raised: {type(e).__name__}: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

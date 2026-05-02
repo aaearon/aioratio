@@ -729,3 +729,142 @@ async def test_grant_upgrade_permission_empty_list_raises(client_with_fake_trans
     client, _fake = client_with_fake_transport
     with pytest.raises(ValueError, match="firmware_update_job_ids"):
         await client.grant_upgrade_permission("SER1", [])
+
+
+# ---------------------------------------------------------------------------
+# diagnostics / ocpp_settings / set_ocpp_settings / cpms_options
+# ---------------------------------------------------------------------------
+
+from aioratio.models import ChargerDiagnostics, CpmsConfig, InstallerOcppSettings
+
+
+async def test_diagnostics_get_url_and_parses(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue({
+        "productInformation": {
+            "mainController": {"firmwareVersion": "4.0", "serialNumber": "CPC-1"}
+        },
+        "backendStatus": {"connected": True},
+    })
+    result = await client.diagnostics("SER1")
+    call = fake.calls[0]
+    assert call["method"] == "GET"
+    assert call["path"] == "/users/user-abc/chargers/SER1/status"
+    assert call["params"] == {"id": "diagnostics"}
+    assert isinstance(result, ChargerDiagnostics)
+    assert result.product_information is not None
+    assert result.product_information.main_controller is not None
+    assert result.product_information.main_controller.serial_number == "CPC-1"
+    assert result.backend_status is not None
+    assert result.backend_status.connected is True
+
+
+async def test_diagnostics_url_encodes_serial(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue({})
+    await client.diagnostics("S/1 X")
+    assert fake.calls[0]["path"] == "/users/user-abc/chargers/S%2F1%20X/status"
+
+
+async def test_diagnostics_none_response_returns_empty(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    result = await client.diagnostics("SER1")
+    assert isinstance(result, ChargerDiagnostics)
+    assert result.backend_status is None
+
+
+async def test_ocpp_settings_get_strips_envelope(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue({
+        "installerOcppSettings": {
+            "enabled": {"value": True, "isChangeAllowed": True, "changeNotAllowedReason": None},
+            "cpms": {"value": {"centralSystem": "Op", "url": "ws://op.com"}, "isChangeAllowed": True, "changeNotAllowedReason": None},
+            "chargePointIdentifier": {"value": "CP-1", "isChangeAllowed": True, "changeNotAllowedReason": None, "maxLength": 48},
+        }
+    })
+    result = await client.ocpp_settings("SER1")
+    call = fake.calls[0]
+    assert call["method"] == "GET"
+    assert call["path"] == "/users/user-abc/chargers/SER1/settings"
+    assert call["params"] == {"id": "installerOcpp"}
+    assert isinstance(result, InstallerOcppSettings)
+    assert result.enabled is True
+    assert result.cpms is not None
+    assert result.cpms.url == "ws://op.com"
+    assert result.charge_point_identifier == "CP-1"
+    assert result.charge_point_identifier_max_length == 48
+
+
+async def test_set_ocpp_settings_put_body_flat(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    settings = InstallerOcppSettings(
+        enabled=True,
+        cpms=CpmsConfig(central_system="Op", url="ws://op.com"),
+        charge_point_identifier="NEW-CP",
+    )
+    await client.set_ocpp_settings("SER1", settings)
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "/users/user-abc/chargers/SER1/settings"
+    assert call["params"] == {"id": "installerOcpp"}
+    body = call["json"]
+    assert "transactionId" in body
+    inner = body["installerOcppSettings"]
+    assert inner == {
+        "enabled": True,
+        "cpms": {"centralSystem": "Op", "url": "ws://op.com"},
+        "chargePointIdentifier": "NEW-CP",
+    }
+    assert "enabledStatus" not in inner
+    assert "isChangeAllowed" not in inner
+
+
+async def test_set_ocpp_settings_partial_body(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    settings = InstallerOcppSettings(charge_point_identifier="ONLY-CPID")
+    await client.set_ocpp_settings("SER1", settings)
+    inner = fake.calls[0]["json"]["installerOcppSettings"]
+    assert inner == {"chargePointIdentifier": "ONLY-CPID"}
+
+
+async def test_cpms_options_lists(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue({
+        "cpmsList": [
+            {"name": "Op A", "url": "ws://a.example.com", "cpidType": "EV_NETWORK"},
+            {"name": "Op B", "url": "ws://b.example.com", "cpidType": "EV_NETWORK"},
+        ]
+    })
+    result = await client.cpms_options("SER1")
+    call = fake.calls[0]
+    assert call["method"] == "GET"
+    assert "charge-point-management-systems" in call["path"]
+    assert len(result) == 2
+    assert all(isinstance(c, CpmsConfig) for c in result)
+    assert result[0].central_system == "Op A"
+    assert result[1].url == "ws://b.example.com"
+
+
+async def test_cpms_options_empty_response_returns_empty_list(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue({"cpmsList": []})
+    result = await client.cpms_options("SER1")
+    assert result == []
+
+
+async def test_cpms_options_none_response_returns_empty_list(client_with_fake_transport):
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    result = await client.cpms_options("SER1")
+    assert result == []
+
+
+async def test_cpms_options_api_error_returns_empty_list(client_with_fake_transport):
+    from aioratio.exceptions import RatioApiError
+    client, fake = client_with_fake_transport
+    fake.queue(RatioApiError("403 Forbidden"))
+    result = await client.cpms_options("SER1")
+    assert result == []

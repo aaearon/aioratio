@@ -24,16 +24,19 @@ from .const import (
     COGNITO_REGION,
     COGNITO_USER_POOL_ID,
 )
-from .exceptions import RatioApiError, RatioAuthError
+from .exceptions import RatioApiError, RatioAuthError, RatioRateLimitError
 from .models import (
     ChargeSchedule,
     Charger,
     ChargerOverview,
+    CpmsConfig,
+    InstallerOcppSettings,
     SessionHistoryPage,
     SolarSettings,
     UserSettings,
     Vehicle,
 )
+from .models.diagnostics import ChargerDiagnostics
 from .token_store import MemoryTokenStore, TokenStore
 
 
@@ -376,6 +379,43 @@ class RatioClient:
     ) -> None:
         self._check_closed()
         await self._put_settings(serial, "solar", self._coerce_body(settings))
+
+    async def diagnostics(self, serial: str) -> ChargerDiagnostics:
+        self._check_closed()
+        uid = await self.user_id()
+        data = await self.transport.request(
+            "GET",
+            f"/users/{_q(uid)}/chargers/{_q(serial)}/status",
+            params={"id": "diagnostics"},
+        )
+        return ChargerDiagnostics.from_dict(data if isinstance(data, dict) else {})
+
+    async def ocpp_settings(self, serial: str) -> InstallerOcppSettings:
+        self._check_closed()
+        data = await self._get_settings(serial, "installerOcpp")
+        return InstallerOcppSettings.from_dict(data if isinstance(data, dict) else {})
+
+    async def set_ocpp_settings(
+        self, serial: str, settings: InstallerOcppSettings | dict
+    ) -> None:
+        self._check_closed()
+        await self._put_settings(serial, "installerOcpp", self._coerce_body(settings))
+
+    async def cpms_options(self, serial: str) -> list[CpmsConfig]:
+        self._check_closed()
+        uid = await self.user_id()
+        try:
+            data = await self.transport.request(
+                "GET",
+                f"/users/{_q(uid)}/chargers/{_q(serial)}/config/ocpp/charge-point-management-systems",
+            )
+        except RatioRateLimitError:
+            raise
+        except RatioApiError:
+            # 403/404 = operator exposes no options; return empty list
+            return []
+        items = _ensure_list(data, "cpmsList")
+        return [CpmsConfig.from_dict(c) for c in items if isinstance(c, dict)]
 
     async def grant_upgrade_permission(
         self,
