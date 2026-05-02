@@ -166,7 +166,7 @@ slipped past them. Live smoke is the source of truth.
 
 ## Status
 
-Early. Used in production by [`home-assistant-ratio`](https://github.com/aaearon/home-assistant-ratio). Field nullability across some models is best-effort against the decompiled APK; flag mismatches as issues.
+Early. Used in production by [`home-assistant-ratio`](https://github.com/aaearon/home-assistant-ratio) against the **Ratio Solar** charger. Field nullability across some models is best-effort against the decompiled APK; flag mismatches as issues.
 
 - **`set_solar_settings` HTTP 502** ([#9](https://github.com/aaearon/aioratio/issues/9)): Fixed. The cloud PUT endpoint expects flat nullable integers (`"sunOffDelayMinutes": 5`), not the nested value objects returned by GET (`{"value": 5, "isChangeAllowed": true, ...}`). `SolarSettings.to_dict()` now emits the correct PUT shape. Smoke-tested against the live API.
 - `ScheduleSlot` and `ChargeSchedule` now have explicit `to_dict()` methods for controlled serialisation.
