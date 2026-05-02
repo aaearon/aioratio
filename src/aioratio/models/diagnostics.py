@@ -46,7 +46,7 @@ class WifiStatus:
             connected=data.get("connected"),
             ipv4_reported_if_connected=data.get("ipv4ReportedIfConnected"),
             ipv4=Ipv4.from_dict(ipv4_raw) if isinstance(ipv4_raw, dict) else None,
-            ssid=data.get("ssid"),
+            ssid=data.get("configuredSsid") or data.get("ssid"),
             rssi=_as_int(data.get("rssi")),
         )
 
@@ -91,12 +91,14 @@ class NetworkStatus:
 class ConnectivityController:
     firmware_version: Optional[str] = None
     hardware_version: Optional[str] = None
+    serial_number: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
         return cls(
             firmware_version=data.get("firmwareVersion"),
             hardware_version=data.get("hardwareVersion"),
+            serial_number=data.get("serialNumber"),
         )
 
 

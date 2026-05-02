@@ -32,6 +32,7 @@ from aioratio.models import (
     UpperLowerLimitSetting,
     UserSettings,
     Vehicle,
+    WifiStatus,
 )
 
 
@@ -673,6 +674,22 @@ def test_charger_diagnostics_from_dict_full():
     assert d.ocpp_status.enabled is True
     assert d.ocpp_status.cpms_name == "Operator1"
     assert d.ocpp_status.cpms_url == "ws://ocpp.example.com/cp"
+
+
+def test_wifi_status_from_dict_configured_ssid_with_fallback():
+    status = WifiStatus.from_dict(
+        {"configuredSsid": "MyWifi", "rssi": -65, "connected": True}
+    )
+    assert status.ssid == "MyWifi"
+    assert status.rssi == -65
+    assert status.connected is True
+
+    fallback_status = WifiStatus.from_dict(
+        {"ssid": "LegacyWifi", "rssi": -70, "connected": False}
+    )
+    assert fallback_status.ssid == "LegacyWifi"
+    assert fallback_status.rssi == -70
+    assert fallback_status.connected is False
 
 
 def test_charger_diagnostics_from_dict_empty():
