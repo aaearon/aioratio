@@ -24,7 +24,7 @@ from .const import (
     COGNITO_REGION,
     COGNITO_USER_POOL_ID,
 )
-from .exceptions import RatioApiError, RatioAuthError
+from .exceptions import RatioApiError, RatioAuthError, RatioRateLimitError
 from .models import (
     ChargeSchedule,
     Charger,
@@ -409,7 +409,10 @@ class RatioClient:
                 "GET",
                 f"/users/{_q(uid)}/chargers/{_q(serial)}/config/ocpp/charge-point-management-systems",
             )
+        except RatioRateLimitError:
+            raise
         except RatioApiError:
+            # 403/404 = operator exposes no options; return empty list
             return []
         items = _ensure_list(data, "cpmsList")
         return [CpmsConfig.from_dict(c) for c in items if isinstance(c, dict)]

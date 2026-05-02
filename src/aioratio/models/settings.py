@@ -371,12 +371,14 @@ class CpmsConfig:
 
     central_system: Optional[str] = None
     url: Optional[str] = None
+    cpid_type: Optional[str] = None  # cpidType from ConfigurableCpms options list
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CpmsConfig":
         return cls(
             central_system=data.get("centralSystem") or data.get("name"),
             url=data.get("url"),
+            cpid_type=data.get("cpidType"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -445,11 +447,14 @@ class InstallerOcppSettings:
         cpms: Optional[CpmsConfig] = None
         cpms_status = OcppFieldStatus()
         if isinstance(cpms_raw, dict):
-            v = cpms_raw.get("value")
-            cpms = CpmsConfig.from_dict(v) if isinstance(v, dict) else None
-            cpms_status = OcppFieldStatus.from_dict(cpms_raw)
-        elif isinstance(cpms_raw, dict):
-            cpms = CpmsConfig.from_dict(cpms_raw)
+            if "isChangeAllowed" in cpms_raw:
+                # GET shape: ValueDTOWithReason wrapper
+                v = cpms_raw.get("value")
+                cpms = CpmsConfig.from_dict(v) if isinstance(v, dict) else None
+                cpms_status = OcppFieldStatus.from_dict(cpms_raw)
+            else:
+                # Flat CpmsConfig dict (e.g. round-tripped from to_dict)
+                cpms = CpmsConfig.from_dict(cpms_raw)
 
         charge_point_identifier: Optional[str] = None
         cpid_status = OcppFieldStatus()

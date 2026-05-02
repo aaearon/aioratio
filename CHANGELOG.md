@@ -25,6 +25,18 @@
   `InstallerOcppSettings`, `CpmsConfig`, `OcppFieldStatus` — all exported
   from `aioratio.models`.
 
+### Changed / Fixed
+
+- `CpmsConfig` now stores `cpid_type` (from `ConfigurableCpms.cpidType`) so
+  callers know the identifier format required by a given operator.
+- `InstallerOcppSettings.from_dict` correctly distinguishes the GET
+  `ValueDTOWithReason` wrapper from a flat `CpmsConfig` dict.
+- `cpms_options()` re-raises `RatioRateLimitError` instead of swallowing it
+  as an empty list — only 403/404 (operator not configured) returns `[]`.
+- `Self` import uses `try/except ImportError` fallback to `typing_extensions`
+  for environments that run below the declared `python_requires = ">=3.11"`
+  (e.g. CI matrix). Not a supported configuration change.
+
 ### Sources
 
 All wire shapes confirmed against decompiled APK 3.9.1:

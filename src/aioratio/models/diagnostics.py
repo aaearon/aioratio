@@ -121,6 +121,7 @@ class MainController:
 class ProductInformation:
     connectivity_controller: Optional[ConnectivityController] = None
     main_controller: Optional[MainController] = None
+    # ``app`` (mobile app version) is intentionally excluded — not useful for HA.
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
