@@ -575,6 +575,24 @@ def test_schedule_slot_to_dict_with_charging_mode():
     assert result["chargingMode"] == "Smart"
 
 
+def test_schedule_slot_to_dict_accepts_single_digit_hour():
+    """The pre-validation behaviour accepted ``int(x)`` of a single digit;
+    keep accepting it so direct library users aren't BC-broken.
+    """
+    slot = ScheduleSlot(start="7:00", end="9:30", days=["monday"])
+    result = slot.to_dict()
+    assert result["beginTimeHour"] == 7
+    assert result["beginTimeMinute"] == 0
+    assert result["endTimeHour"] == 9
+    assert result["endTimeMinute"] == 30
+
+
+def test_schedule_slot_to_dict_rejects_out_of_range_hour():
+    slot = ScheduleSlot(start="25:00", end="06:00", days=["monday"])
+    with pytest.raises(ValueError, match="ScheduleSlot.start must be 'HH:MM'"):
+        slot.to_dict()
+
+
 def test_charge_schedule_to_dict():
     """ChargeSchedule.to_dict() emits per-day weekSchedule for PUT."""
     payload = {

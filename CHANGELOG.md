@@ -24,8 +24,10 @@
   `home-assistant-ratio` integration already wraps this call in its own
   per-call try/except in the coordinator, so HACS users do not need to act.
 - `ScheduleSlot.to_dict()` now validates `start`/`end` strings against
-  `^([01]\d|2[0-3]):[0-5]\d$` and raises a clear `ValueError`. The previous
+  `^(?:[01]?\d|2[0-3]):[0-5]\d$` and raises a clear `ValueError`. The previous
   behaviour was to fail later inside `int(...)` with a confusing trace.
+  Both zero-padded (`07:00`) and single-digit-hour (`7:00`) forms are
+  accepted so direct callers aren't BC-broken.
 - Tightened `_CloudTransport.request()` and `_get_settings()` return
   annotations from `Any` to `dict[str, Any] | list[Any] | None` /
   `dict[str, Any] | None` for stronger downstream type-checking.

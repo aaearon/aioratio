@@ -16,15 +16,20 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Self
 
-_HHMM_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+# Accept both zero-padded ("07:00") and single-digit-hour ("7:00") forms.
+# The pre-validation behaviour was ``int(x) for x in value.split(":")``,
+# which silently accepted both; refusing the un-padded form outright would
+# be a regression for direct library users.
+_HHMM_RE = re.compile(r"^(?:[01]?\d|2[0-3]):[0-5]\d$")
 
 
 def _parse_hhmm(value: str, field_name: str) -> tuple[int, int]:
-    """Validate ``HH:MM`` and return ``(hour, minute)``.
+    """Validate ``H:MM``/``HH:MM`` and return ``(hour, minute)``.
 
-    Accepts 00:00 through 23:59. Raises ``ValueError`` with a clear
-    message on malformed input rather than letting ``int()`` fail
-    deep inside :meth:`ScheduleSlot.to_dict`.
+    Accepts 00:00 through 23:59 in either zero-padded (``07:00``) or
+    single-digit-hour (``7:00``) form. Raises ``ValueError`` with a clear
+    message on malformed input rather than letting ``int()`` fail deep
+    inside :meth:`ScheduleSlot.to_dict`.
     """
     if not isinstance(value, str) or not _HHMM_RE.match(value):
         raise ValueError(f"ScheduleSlot.{field_name} must be 'HH:MM' (00:00-23:59); got {value!r}")
