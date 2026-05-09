@@ -1,13 +1,14 @@
 """Public dataclass models for the aioratio library."""
+
 from __future__ import annotations
 
 from .charger import (
-    ChargeSessionStatus,
     Charger,
     ChargerFirmwareStatus,
     ChargerOverview,
     ChargerStatus,
     ChargerStatusError,
+    ChargeSessionStatus,
     FirmwareUpdateJob,
     Indicators,
     LastUpdatedTimestamp,

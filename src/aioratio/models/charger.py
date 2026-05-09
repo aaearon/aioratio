@@ -4,14 +4,11 @@ Field names mirror the JSON keys produced by the cloud API (Kotlinx
 Serialization uses Kotlin property names by default — no remapping
 annotations were observed in the decompiled DTOs).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-try:
-    from typing import Any, Optional, Self
-except ImportError:  # Python 3.10
-    from typing import Any, Optional
-    from typing_extensions import Self
+from typing import Any, Self
 
 from ..exceptions import RatioApiError
 
@@ -61,12 +58,12 @@ class Indicators:
     Source: ``IndicatorsDTO.java``.
     """
 
-    charging_state: Optional[str] = None
+    charging_state: str | None = None
     errors: list[ChargerStatusError] = field(default_factory=list)
     is_charge_session_active: bool = False
-    is_charging_authorized: Optional[bool] = None
+    is_charging_authorized: bool | None = None
     is_charging_disabled: bool = False
-    is_charging_disabled_reason: Optional[str] = None
+    is_charging_disabled_reason: str | None = None
     is_charging_paused: bool = False
     is_power_reduced_by_dso: bool = False
     is_vehicle_connected: bool = False
@@ -96,7 +93,7 @@ class ChargerStatus:
 
     is_charge_start_allowed: bool
     is_charge_stop_allowed: bool
-    indicators: Optional[Indicators] = None
+    indicators: Indicators | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -116,7 +113,7 @@ class ChargeSessionStatus:
     """
 
     actual_charging_power: int
-    vehicle_id: Optional[str] = None
+    vehicle_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -135,9 +132,9 @@ class FirmwareUpdateJob:
     """
 
     # TODO: confirm against live payload — schema not fully decoded from APK.
-    job_id: Optional[str] = None
-    type: Optional[str] = None
-    status: Optional[str] = None
+    job_id: str | None = None
+    type: str | None = None
+    status: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -160,7 +157,7 @@ class ChargerFirmwareStatus:
     is_firmware_update_available: bool = False
     is_firmware_update_allowed: bool = False
     firmware_update_jobs: list[FirmwareUpdateJob] = field(default_factory=list)
-    firmware_update_status: Optional[str] = None
+    firmware_update_status: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -181,7 +178,7 @@ class LastUpdatedTimestamp:
     """
 
     last_updated: int
-    setting: Optional[str] = None
+    setting: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -200,10 +197,10 @@ class ChargerOverview:
     """
 
     serial_number: str
-    cloud_connection_state: Optional[str] = None
-    charger_status: Optional[ChargerStatus] = None
-    charge_session_status: Optional[ChargeSessionStatus] = None
-    charger_firmware_status: Optional[ChargerFirmwareStatus] = None
+    cloud_connection_state: str | None = None
+    charger_status: ChargerStatus | None = None
+    charge_session_status: ChargeSessionStatus | None = None
+    charger_firmware_status: ChargerFirmwareStatus | None = None
     last_updated_timestamps: list[LastUpdatedTimestamp] = field(default_factory=list)
 
     @classmethod
@@ -216,7 +213,11 @@ class ChargerOverview:
             serial_number=_required(data, "serialNumber"),
             cloud_connection_state=data.get("cloudConnectionState"),
             charger_status=ChargerStatus.from_dict(cs) if isinstance(cs, dict) else None,
-            charge_session_status=ChargeSessionStatus.from_dict(css) if isinstance(css, dict) else None,
-            charger_firmware_status=ChargerFirmwareStatus.from_dict(cfs) if isinstance(cfs, dict) else None,
+            charge_session_status=ChargeSessionStatus.from_dict(css)
+            if isinstance(css, dict)
+            else None,
+            charger_firmware_status=ChargerFirmwareStatus.from_dict(cfs)
+            if isinstance(cfs, dict)
+            else None,
             last_updated_timestamps=[LastUpdatedTimestamp.from_dict(t) for t in ts_raw],
         )

@@ -9,14 +9,32 @@ Kotlin DTOs use ``ValueDTO<T>`` / ``EnumDataClass<T>`` wrappers whose
 exact JSON shape was not exhaustively decoded. Consumers needing the
 raw payload can use ``raw``.
 """
+
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-try:
-    from typing import Any, Optional, Self
-except ImportError:  # Python 3.10
-    from typing import Any, Optional  # type: ignore[assignment]
-    from typing_extensions import Self
+from typing import Any, Self
+
+# Accept both zero-padded ("07:00") and single-digit-hour ("7:00") forms.
+# The pre-validation behaviour was ``int(x) for x in value.split(":")``,
+# which silently accepted both; refusing the un-padded form outright would
+# be a regression for direct library users.
+_HHMM_RE = re.compile(r"^(?:[01]?\d|2[0-3]):[0-5]\d$")
+
+
+def _parse_hhmm(value: str, field_name: str) -> tuple[int, int]:
+    """Validate ``H:MM``/``HH:MM`` and return ``(hour, minute)``.
+
+    Accepts 00:00 through 23:59 in either zero-padded (``07:00``) or
+    single-digit-hour (``7:00``) form. Raises ``ValueError`` with a clear
+    message on malformed input rather than letting ``int()`` fail deep
+    inside :meth:`ScheduleSlot.to_dict`.
+    """
+    if not isinstance(value, str) or not _HHMM_RE.match(value):
+        raise ValueError(f"ScheduleSlot.{field_name} must be 'HH:MM' (00:00-23:59); got {value!r}")
+    h, m = value.split(":")
+    return int(h), int(m)
 
 
 @dataclass(slots=True)
@@ -27,9 +45,9 @@ class UpperLowerLimitSetting:
     whatever the cloud returns so ``to_dict()`` can echo it back.
     """
 
-    value: Optional[float] = None
-    lower: Optional[float] = None
-    upper: Optional[float] = None
+    value: float | None = None
+    lower: float | None = None
+    upper: float | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -61,7 +79,7 @@ class UpperLowerLimitSetting:
 class EnumValue:
     """Generic ``EnumDataClass<T>`` wrapper from the APK."""
 
-    value: Optional[str] = None
+    value: str | None = None
     allowed_values: list[str] = field(default_factory=list)
 
     @classmethod
@@ -80,7 +98,7 @@ class ChargeModeSettings:
     Source: ``ChargeModeSettings.java``.
     """
 
-    value: Optional[str] = None
+    value: str | None = None
     allowed_values: list[str] = field(default_factory=list)
 
     @classmethod
@@ -99,19 +117,19 @@ class UserSettings:
     Source: ``UserSettings.java``.
     """
 
-    cable_settings: Optional[EnumValue] = None
-    charging_mode: Optional[ChargeModeSettings] = None
-    maximum_charging_current: Optional[UpperLowerLimitSetting] = None
-    minimum_charging_current: Optional[UpperLowerLimitSetting] = None
-    start_mode: Optional[EnumValue] = None
+    cable_settings: EnumValue | None = None
+    charging_mode: ChargeModeSettings | None = None
+    maximum_charging_current: UpperLowerLimitSetting | None = None
+    minimum_charging_current: UpperLowerLimitSetting | None = None
+    start_mode: EnumValue | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        def _enum(key: str) -> Optional[EnumValue]:
+        def _enum(key: str) -> EnumValue | None:
             v = data.get(key)
             return EnumValue.from_dict(v) if isinstance(v, dict) else None
 
-        def _limit(key: str) -> Optional[UpperLowerLimitSetting]:
+        def _limit(key: str) -> UpperLowerLimitSetting | None:
             v = data.get(key)
             return UpperLowerLimitSetting.from_dict(v) if isinstance(v, dict) else None
 
@@ -130,9 +148,15 @@ class UserSettings:
             out["cableSettings"] = {"value": self.cable_settings.value}
         if self.charging_mode is not None and self.charging_mode.value is not None:
             out["chargingMode"] = {"value": self.charging_mode.value}
-        if self.maximum_charging_current is not None and self.maximum_charging_current.value is not None:
+        if (
+            self.maximum_charging_current is not None
+            and self.maximum_charging_current.value is not None
+        ):
             out["maximumChargingCurrent"] = self.maximum_charging_current.to_dict()
-        if self.minimum_charging_current is not None and self.minimum_charging_current.value is not None:
+        if (
+            self.minimum_charging_current is not None
+            and self.minimum_charging_current.value is not None
+        ):
             out["minimumChargingCurrent"] = self.minimum_charging_current.to_dict()
         if self.start_mode is not None and self.start_mode.value is not None:
             out["startMode"] = {"value": self.start_mode.value}
@@ -146,14 +170,14 @@ class SolarSettings:
     Source: ``SolarSettings.java``.
     """
 
-    pure_solar_starting_current: Optional[UpperLowerLimitSetting] = None
-    smart_solar_starting_current: Optional[UpperLowerLimitSetting] = None
-    sun_off_delay_minutes: Optional[UpperLowerLimitSetting] = None
-    sun_on_delay_minutes: Optional[UpperLowerLimitSetting] = None
+    pure_solar_starting_current: UpperLowerLimitSetting | None = None
+    smart_solar_starting_current: UpperLowerLimitSetting | None = None
+    sun_off_delay_minutes: UpperLowerLimitSetting | None = None
+    sun_on_delay_minutes: UpperLowerLimitSetting | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        def _limit(key: str) -> Optional[UpperLowerLimitSetting]:
+        def _limit(key: str) -> UpperLowerLimitSetting | None:
             v = data.get(key)
             return UpperLowerLimitSetting.from_dict(v) if isinstance(v, dict) else None
 
@@ -178,11 +202,17 @@ class SolarSettings:
             return int(value)
 
         out: dict[str, Any] = {}
-        if self.pure_solar_starting_current is not None and self.pure_solar_starting_current.value is not None:
+        if (
+            self.pure_solar_starting_current is not None
+            and self.pure_solar_starting_current.value is not None
+        ):
             out["pureSolarStartingCurrent"] = _integer_payload_value(
                 "pureSolarStartingCurrent", self.pure_solar_starting_current.value
             )
-        if self.smart_solar_starting_current is not None and self.smart_solar_starting_current.value is not None:
+        if (
+            self.smart_solar_starting_current is not None
+            and self.smart_solar_starting_current.value is not None
+        ):
             out["smartSolarStartingCurrent"] = _integer_payload_value(
                 "smartSolarStartingCurrent", self.smart_solar_starting_current.value
             )
@@ -199,8 +229,13 @@ class SolarSettings:
 
 _DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 _DAY_ABBR_TO_FULL: dict[str, str] = {
-    "MON": "monday", "TUE": "tuesday", "WED": "wednesday",
-    "THU": "thursday", "FRI": "friday", "SAT": "saturday", "SUN": "sunday",
+    "MON": "monday",
+    "TUE": "tuesday",
+    "WED": "wednesday",
+    "THU": "thursday",
+    "FRI": "friday",
+    "SAT": "saturday",
+    "SUN": "sunday",
 }
 
 
@@ -218,7 +253,7 @@ class DelayedStartSetting:
 
     begin_time_hour: int = 0
     begin_time_minute: int = 0
-    charging_mode: Optional[str] = None
+    charging_mode: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -253,10 +288,10 @@ class ScheduleSlot:
     applies to (e.g. ``["monday", "tuesday"]``).
     """
 
-    start: Optional[str] = None
-    end: Optional[str] = None
+    start: str | None = None
+    end: str | None = None
     days: list[str] = field(default_factory=list)
-    charging_mode: Optional[str] = None
+    charging_mode: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -277,11 +312,11 @@ class ScheduleSlot:
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         if self.start is not None:
-            h, m = (int(x) for x in self.start.split(":"))
+            h, m = _parse_hhmm(self.start, "start")
             out["beginTimeHour"] = h
             out["beginTimeMinute"] = m
         if self.end is not None:
-            h, m = (int(x) for x in self.end.split(":"))
+            h, m = _parse_hhmm(self.end, "end")
             out["endTimeHour"] = h
             out["endTimeMinute"] = m
         if self.charging_mode is not None:
@@ -303,9 +338,9 @@ class ChargeSchedule:
     """
 
     enabled: bool = False
-    schedule_type: Optional[str] = None
+    schedule_type: str | None = None
     randomized_time_offset_enabled: bool = False
-    delayed_start: Optional[DelayedStartSetting] = None
+    delayed_start: DelayedStartSetting | None = None
     slots: list[ScheduleSlot] = field(default_factory=list)
 
     @classmethod
@@ -326,7 +361,7 @@ class ChargeSchedule:
             slots = [ScheduleSlot.from_dict(s) for s in slots_raw if isinstance(s, dict)]
 
         ds_raw = data.get("delayedStart")
-        delayed_start: Optional[DelayedStartSetting] = None
+        delayed_start: DelayedStartSetting | None = None
         if isinstance(ds_raw, dict):
             delayed_start = DelayedStartSetting.from_dict(ds_raw)
 
@@ -351,7 +386,7 @@ class ChargeSchedule:
         week: dict[str, list[dict[str, Any]]] = {day: [] for day in _DAYS}
         for slot in self.slots:
             serialised = slot.to_dict()
-            for day in (slot.days or _DAYS):
+            for day in slot.days or _DAYS:
                 day_key = str(day).upper()
                 day_lower = _DAY_ABBR_TO_FULL.get(day_key, str(day).lower())
                 if day_lower in week:
@@ -369,12 +404,12 @@ class CpmsConfig:
     Both shapes are accepted; ``central_system`` captures the label field.
     """
 
-    central_system: Optional[str] = None
-    url: Optional[str] = None
-    cpid_type: Optional[str] = None  # cpidType from ConfigurableCpms options list
+    central_system: str | None = None
+    url: str | None = None
+    cpid_type: str | None = None  # cpidType from ConfigurableCpms options list
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "CpmsConfig":
+    def from_dict(cls, data: dict[str, Any]) -> CpmsConfig:
         return cls(
             central_system=data.get("centralSystem") or data.get("name"),
             url=data.get("url"),
@@ -400,10 +435,10 @@ class OcppFieldStatus:
     """
 
     is_change_allowed: bool = True
-    change_not_allowed_reason: Optional[str] = None
+    change_not_allowed_reason: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OcppFieldStatus":
+    def from_dict(cls, data: dict[str, Any]) -> OcppFieldStatus:
         return cls(
             is_change_allowed=bool(data.get("isChangeAllowed", True)),
             change_not_allowed_reason=_unwrap_str(data.get("changeNotAllowedReason")),
@@ -421,21 +456,21 @@ class InstallerOcppSettings:
     ``SetInstallerOcppSettings.java``, ``ChargePointIdentifier.java``.
     """
 
-    enabled: Optional[bool] = None
-    cpms: Optional[CpmsConfig] = None
-    charge_point_identifier: Optional[str] = None
+    enabled: bool | None = None
+    cpms: CpmsConfig | None = None
+    charge_point_identifier: str | None = None
     enabled_status: OcppFieldStatus = field(default_factory=OcppFieldStatus)
     cpms_status: OcppFieldStatus = field(default_factory=OcppFieldStatus)
     charge_point_identifier_status: OcppFieldStatus = field(default_factory=OcppFieldStatus)
-    charge_point_identifier_max_length: Optional[int] = None
+    charge_point_identifier_max_length: int | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "InstallerOcppSettings":
+    def from_dict(cls, data: dict[str, Any]) -> InstallerOcppSettings:
         enabled_raw = data.get("enabled")
         cpms_raw = data.get("cpms")
         cpid_raw = data.get("chargePointIdentifier")
 
-        enabled: Optional[bool] = None
+        enabled: bool | None = None
         enabled_status = OcppFieldStatus()
         if isinstance(enabled_raw, dict):
             v = enabled_raw.get("value")
@@ -444,7 +479,7 @@ class InstallerOcppSettings:
         elif enabled_raw is not None:
             enabled = bool(enabled_raw)
 
-        cpms: Optional[CpmsConfig] = None
+        cpms: CpmsConfig | None = None
         cpms_status = OcppFieldStatus()
         if isinstance(cpms_raw, dict):
             if "isChangeAllowed" in cpms_raw:
@@ -456,9 +491,9 @@ class InstallerOcppSettings:
                 # Flat CpmsConfig dict (e.g. round-tripped from to_dict)
                 cpms = CpmsConfig.from_dict(cpms_raw)
 
-        charge_point_identifier: Optional[str] = None
+        charge_point_identifier: str | None = None
         cpid_status = OcppFieldStatus()
-        cpid_max_length: Optional[int] = None
+        cpid_max_length: int | None = None
         if isinstance(cpid_raw, dict):
             charge_point_identifier = cpid_raw.get("value")
             cpid_status = OcppFieldStatus.from_dict(cpid_raw)
@@ -504,7 +539,7 @@ def _parse_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
-def _as_float(v: Any) -> Optional[float]:
+def _as_float(v: Any) -> float | None:
     if v is None:
         return None
     try:
@@ -522,6 +557,6 @@ def _unwrap_value(v: Any, default: Any = None) -> Any:
     return v if v is not None else default
 
 
-def _unwrap_str(v: Any) -> Optional[str]:
+def _unwrap_str(v: Any) -> str | None:
     v = _unwrap_value(v)
     return None if v is None else str(v)

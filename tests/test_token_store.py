@@ -1,4 +1,5 @@
 """Tests for aioratio.token_store."""
+
 from __future__ import annotations
 
 import asyncio
@@ -86,9 +87,7 @@ async def test_is_expired() -> None:
     )
     assert within_skew.is_expired
 
-    past = TokenBundle(
-        access_token="a", id_token="i", refresh_token="r", expires_at=now - 10
-    )
+    past = TokenBundle(access_token="a", id_token="i", refresh_token="r", expires_at=now - 10)
     assert past.is_expired
 
 
@@ -122,7 +121,8 @@ async def test_json_file_store_atomic_write_no_tmp_left(tmp_path) -> None:
     store = JsonFileTokenStore(path)
     await store.save(_full_bundle())
     leftovers = [
-        p for p in tmp_path.iterdir()
+        p
+        for p in tmp_path.iterdir()
         if p.name.startswith(".ratio_tokens_") or p.name.endswith(".tmp")
     ]
     assert leftovers == []
@@ -133,10 +133,7 @@ async def test_json_file_store_no_leftover_temp_files(tmp_path) -> None:
     path = tmp_path / "tokens.json"
     store = JsonFileTokenStore(path)
     await store.save(_full_bundle())
-    leftovers = [
-        p for p in tmp_path.iterdir()
-        if p.name.startswith(".ratio_tokens_")
-    ]
+    leftovers = [p for p in tmp_path.iterdir() if p.name.startswith(".ratio_tokens_")]
     assert leftovers == [], f"leftover temp files: {leftovers}"
 
 

@@ -1,4 +1,5 @@
 """Tests for CognitoSrpAuth."""
+
 from __future__ import annotations
 
 import asyncio
@@ -381,12 +382,9 @@ async def test_cognito_error_mapping_NotAuthorized_to_RatioAuthError() -> None:
         status = 400
 
         async def text(self) -> str:
-            return (
-                '{"__type":"NotAuthorizedException",'
-                '"message":"Incorrect username or password."}'
-            )
+            return '{"__type":"NotAuthorizedException","message":"Incorrect username or password."}'
 
-        async def __aenter__(self) -> "FakeResp":
+        async def __aenter__(self) -> FakeResp:
             return self
 
         async def __aexit__(self, *exc: Any) -> None:

@@ -10,14 +10,17 @@ Implements three flows against the Cognito Identity Provider service:
 
 Token persistence is delegated to :class:`TokenStore`.
 """
+
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Any
 
 import aiohttp
 
+from . import srp as _srp
 from .const import COGNITO_CLIENT_ID, COGNITO_REGION, COGNITO_USER_POOL_ID
 from .exceptions import (
     RatioApiError,
@@ -25,10 +28,9 @@ from .exceptions import (
     RatioConnectionError,
     RatioRateLimitError,
 )
-from . import srp as _srp
-
 from .token_store import TokenBundle, TokenStore
 
+_LOGGER = logging.getLogger(__name__)
 
 _DEVICE_NAME = "Home Assistant via aioratio"
 
@@ -79,30 +81,55 @@ class CognitoSrpAuth:
     # Public API
     # ------------------------------------------------------------------
     async def get_access_token(self) -> str:
+        """Return a valid access token, refreshing or logging in as needed.
+
+        - If no bundle is stored, performs a fresh ``USER_SRP_AUTH`` login.
+        - If the stored bundle is expired and has a refresh token, attempts
+          ``REFRESH_TOKEN_AUTH``; falls back to a fresh login on
+          :class:`RatioAuthError`.
+        - Concurrent callers are serialised via an internal lock.
+        """
         async with self._lock:
             bundle = await self._token_store.load()
             if bundle is None:
+                _LOGGER.debug("no token bundle stored; performing fresh login")
                 bundle = await self._login_locked()
             elif _is_expired(bundle):
                 if bundle.refresh_token:
+                    _LOGGER.debug("access token expired; refreshing")
                     try:
                         bundle = await self._refresh_locked(bundle)
                     except RatioAuthError:
+                        _LOGGER.debug("refresh failed; falling back to login")
                         bundle = await self._login_locked()
                 else:
+                    _LOGGER.debug("access token expired and no refresh token; login")
                     bundle = await self._login_locked()
             return bundle.access_token
 
     async def login(self) -> TokenBundle:
+        """Force a fresh ``USER_SRP_AUTH`` login, ignoring stored tokens.
+
+        Returns the freshly persisted :class:`TokenBundle`.
+        """
         async with self._lock:
             return await self._login_locked()
 
     async def refresh(self, bundle: TokenBundle) -> TokenBundle:
+        """Run ``REFRESH_TOKEN_AUTH`` for ``bundle`` and persist the result.
+
+        Raises :class:`RatioAuthError` if the bundle has no refresh token
+        or Cognito rejects the grant.
+        """
         async with self._lock:
             return await self._refresh_locked(bundle)
 
     async def invalidate_access_token(self) -> None:
-        """Force the next get_access_token() call to refresh."""
+        """Force the next :meth:`get_access_token` call to refresh.
+
+        Marks the persisted bundle as expired without otherwise mutating
+        its contents. Cheap and safe to call from a 401 retry path.
+        """
         async with self._lock:
             bundle = await self._token_store.load()
             if bundle is not None:
@@ -115,15 +142,12 @@ class CognitoSrpAuth:
     async def _login_locked(self) -> TokenBundle:
         if self._email is None or self._password is None:
             raise RatioAuthError("email and password required for login")
+        _LOGGER.debug("starting USER_SRP_AUTH login")
 
         existing = await self._token_store.load()
         device_key = getattr(existing, "device_key", None) if existing else None
-        device_group_key = (
-            getattr(existing, "device_group_key", None) if existing else None
-        )
-        device_password = (
-            getattr(existing, "device_password", None) if existing else None
-        )
+        device_group_key = getattr(existing, "device_group_key", None) if existing else None
+        device_password = getattr(existing, "device_password", None) if existing else None
 
         user_srp = _srp.UserSrp()
         srp_a = user_srp.start()
@@ -164,12 +188,8 @@ class CognitoSrpAuth:
         # If a remembered device exists, Cognito returns DEVICE_SRP_AUTH next.
         if resp.get("ChallengeName") == "DEVICE_SRP_AUTH":
             if not (device_key and device_group_key and device_password):
-                raise RatioAuthError(
-                    "DEVICE_SRP_AUTH challenge issued but no stored device"
-                )
-            device_srp = _srp.DeviceSrp(
-                device_group_key, device_key, device_password
-            )
+                raise RatioAuthError("DEVICE_SRP_AUTH challenge issued but no stored device")
+            device_srp = _srp.DeviceSrp(device_group_key, device_key, device_password)
             device_a = device_srp.start()
             cp2 = resp["ChallengeParameters"]
             username2 = cp2.get("USERNAME", srp_username)
@@ -185,9 +205,7 @@ class CognitoSrpAuth:
                 self._raise_unsupported(resp2.get("ChallengeName"))
             cp3 = resp2["ChallengeParameters"]
             username3 = cp3.get("USERNAME", username2)
-            sig2, ts2 = device_srp.process_challenge(
-                cp3["SRP_B"], cp3["SALT"], cp3["SECRET_BLOCK"]
-            )
+            sig2, ts2 = device_srp.process_challenge(cp3["SRP_B"], cp3["SALT"], cp3["SECRET_BLOCK"])
             resp3 = await self._respond_to_challenge(
                 "DEVICE_PASSWORD_VERIFIER",
                 {
@@ -218,9 +236,7 @@ class CognitoSrpAuth:
         new_device_group_key = new_dev.get("DeviceGroupKey")
         new_device_password: str | None = None
         if new_device_key and new_device_group_key:
-            verifier = _srp.generate_device_verifier(
-                new_device_group_key, new_device_key
-            )
+            verifier = _srp.generate_device_verifier(new_device_group_key, new_device_key)
             new_device_password = verifier["password"]
             await self._confirm_device(
                 access_token=auth_result["AccessToken"],
@@ -245,6 +261,7 @@ class CognitoSrpAuth:
     async def _refresh_locked(self, bundle: TokenBundle) -> TokenBundle:
         if not bundle.refresh_token:
             raise RatioAuthError("no refresh token available")
+        _LOGGER.debug("running REFRESH_TOKEN_AUTH")
         params: dict[str, str] = {"REFRESH_TOKEN": bundle.refresh_token}
         if bundle.device_key:
             params["DEVICE_KEY"] = bundle.device_key
@@ -310,9 +327,7 @@ class CognitoSrpAuth:
             },
         )
 
-    async def _update_device_status(
-        self, *, access_token: str, device_key: str
-    ) -> None:
+    async def _update_device_status(self, *, access_token: str, device_key: str) -> None:
         await self._cognito_call(
             "UpdateDeviceStatus",
             {
@@ -339,11 +354,12 @@ class CognitoSrpAuth:
                 text = await resp.text()
         except aiohttp.ClientError as err:
             raise RatioConnectionError(str(err)) from err
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise RatioConnectionError("request timed out") from err
 
         try:
             import json
+
             data = json.loads(text) if text else {}
         except ValueError as err:
             raise RatioAuthError(f"invalid JSON from Cognito: {text!r}") from err
@@ -379,9 +395,7 @@ class CognitoSrpAuth:
     @staticmethod
     def _extract_auth_result(resp: dict[str, Any]) -> dict[str, Any]:
         if "AuthenticationResult" not in resp:
-            raise RatioAuthError(
-                f"unexpected Cognito response: {resp.get('ChallengeName')!r}"
-            )
+            raise RatioAuthError(f"unexpected Cognito response: {resp.get('ChallengeName')!r}")
         return resp["AuthenticationResult"]
 
     @staticmethod

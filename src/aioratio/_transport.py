@@ -8,10 +8,11 @@ re-login on the second call).
 This module is intentionally private -- public callers go through
 :class:`aioratio.client.RatioClient`.
 """
+
 from __future__ import annotations
 
-import asyncio
 import json as _json
+import logging
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
@@ -27,6 +28,8 @@ from .exceptions import (
 if TYPE_CHECKING:
     from .auth import CognitoSrpAuth
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class _CloudTransport:
     """Private async HTTP transport for the Ratio cloud API."""
@@ -34,7 +37,7 @@ class _CloudTransport:
     def __init__(
         self,
         *,
-        auth: "CognitoSrpAuth",
+        auth: CognitoSrpAuth,
         session: aiohttp.ClientSession,
         base_url: str = API_BASE_URL,
         timeout: float = 30.0,
@@ -51,7 +54,7 @@ class _CloudTransport:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
-    ) -> Any:
+    ) -> dict[str, Any] | list[Any] | None:
         """Send an authenticated request and return parsed JSON or None."""
         if not path.startswith("/"):
             path = "/" + path
@@ -83,14 +86,18 @@ class _CloudTransport:
                     content_type = resp.headers.get("Content-Type", "")
                     retry_after = resp.headers.get("Retry-After")
             except aiohttp.ClientError as err:
+                _LOGGER.debug("%s %s connection error: %s", method_upper, path, err)
                 raise RatioConnectionError(str(err)) from err
-            except asyncio.TimeoutError as err:
+            except TimeoutError as err:
+                _LOGGER.debug("%s %s timed out", method_upper, path)
                 raise RatioConnectionError("request timed out") from err
 
             if status == 401:
                 if retried:
+                    _LOGGER.debug("%s %s still 401 after refresh", method_upper, path)
                     raise RatioAuthError("authentication rejected after refresh")
                 retried = True
+                _LOGGER.debug("%s %s got 401; invalidating and retrying", method_upper, path)
                 await self._auth.invalidate_access_token()
                 continue
 
@@ -98,21 +105,24 @@ class _CloudTransport:
                 msg = "rate limit exceeded"
                 if retry_after:
                     msg = f"{msg} (retry-after={retry_after})"
-                raise RatioRateLimitError(msg)
+                _LOGGER.debug("%s %s rate-limited: %s", method_upper, path, msg)
+                raise RatioRateLimitError(msg, status=status)
 
             if status >= 400:
                 body_text = body_bytes.decode("utf-8", errors="replace")
-                raise RatioApiError(f"HTTP {status}: {body_text}")
+                _LOGGER.debug("%s %s -> HTTP %s: %s", method_upper, path, status, body_text)
+                raise RatioApiError(f"HTTP {status}: {body_text}", status=status)
 
             if not body_bytes:
                 return None
-            if "json" in content_type.lower() or body_bytes.lstrip().startswith(
-                (b"{", b"[")
-            ):
+            if "json" in content_type.lower() or body_bytes.lstrip().startswith((b"{", b"[")):
                 try:
                     return _json.loads(body_bytes.decode("utf-8"))
                 except ValueError as err:
-                    raise RatioApiError(f"invalid JSON response: {err}") from err
+                    # Status was 2xx — surface that on the error so callers
+                    # can distinguish "200 with garbage body" from a real
+                    # 4xx/5xx failure.
+                    raise RatioApiError(f"invalid JSON response: {err}", status=status) from err
             return None
 
 
