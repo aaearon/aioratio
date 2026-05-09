@@ -119,7 +119,10 @@ class _CloudTransport:
                 try:
                     return _json.loads(body_bytes.decode("utf-8"))
                 except ValueError as err:
-                    raise RatioApiError(f"invalid JSON response: {err}") from err
+                    # Status was 2xx — surface that on the error so callers
+                    # can distinguish "200 with garbage body" from a real
+                    # 4xx/5xx failure.
+                    raise RatioApiError(f"invalid JSON response: {err}", status=status) from err
             return None
 
 

@@ -99,8 +99,8 @@ k: int = bytes_to_int(_H(N_BYTES + _PAD(g)))
 def generate_a() -> tuple[int, int]:
     """Generate a fresh SRP private/public client value pair ``(a, A)``.
 
-    ``a`` is a random 256-bit integer reduced mod N (the reduction is a
-    no-op since N is 2048-bit, but kept for clarity).
+    ``a`` is a random ``SRP_PRIVATE_BITS``-bit integer reduced mod N (the
+    reduction is a no-op since N is 3072-bit, but kept for clarity).
     ``A = g^a mod N``.
     """
     a = secrets.randbits(SRP_PRIVATE_BITS) % N
