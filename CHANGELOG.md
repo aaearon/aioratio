@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-05-09
+
 ### Added
 
 - Module-level loggers (`aioratio.auth`, `aioratio.client`, `aioratio.token_store`,
