@@ -1,6 +1,6 @@
 # aioratio
 
-Async Python client for the [Ratio](https://ratio.energy/) EV Charging cloud API.
+Async Python client for the [Ratio](https://www.ratio-electric.com/) EV Charging cloud API.
 
 [![PyPI](https://img.shields.io/pypi/v/aioratio.svg)](https://pypi.org/project/aioratio/)
 [![Python](https://img.shields.io/pypi/pyversions/aioratio.svg)](https://pypi.org/project/aioratio/)
