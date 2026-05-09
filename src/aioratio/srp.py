@@ -15,6 +15,7 @@ This module is a pure-Python implementation; it relies only on the
 standard library (``hashlib``, ``hmac``, ``secrets``, ``os``, ``base64``,
 ``time``).
 """
+
 from __future__ import annotations
 
 import base64
@@ -23,7 +24,6 @@ import os
 import secrets
 import time
 from hashlib import sha256
-from typing import Tuple
 
 # Cognito-defined 3072-bit MODP prime, generator g = 2.
 _N_HEX = (
@@ -48,6 +48,15 @@ _N_HEX = (
 N: int = int(_N_HEX, 16)
 g: int = 2
 N_LEN: int = 384  # bytes (3072 bits)
+
+# Cognito-specific HKDF parameters.
+HKDF_INFO: bytes = b"Caldera Derived Key"
+HKDF_OUTPUT_LENGTH: int = 16
+
+# Device-verifier generation parameters (Amplify-JS algorithm).
+DEVICE_PASSWORD_BYTES: int = 40
+DEVICE_SALT_BYTES: int = 16
+SRP_PRIVATE_BITS: int = 256
 
 
 def int_to_padded_bytes(x: int, length: int = N_LEN) -> bytes:
@@ -87,14 +96,14 @@ N_BYTES: bytes = _PAD(N)
 k: int = bytes_to_int(_H(N_BYTES + _PAD(g)))
 
 
-def generate_a() -> Tuple[int, int]:
+def generate_a() -> tuple[int, int]:
     """Generate a fresh SRP private/public client value pair ``(a, A)``.
 
     ``a`` is a random 256-bit integer reduced mod N (the reduction is a
     no-op since N is 2048-bit, but kept for clarity).
     ``A = g^a mod N``.
     """
-    a = secrets.randbits(256) % N
+    a = secrets.randbits(SRP_PRIVATE_BITS) % N
     A = pow(g, a, N)
     return a, A
 
@@ -135,15 +144,15 @@ def compute_S(B: int, k_: int, g_: int, N_: int, x: int, a: int, u: int) -> int:
 def hkdf_derive(u: int, S: int) -> bytes:
     """HKDF-SHA256 with Cognito's ``Caldera Derived Key`` info string.
 
-    salt = PAD(u), IKM = PAD(S), L = 16, info = b"Caldera Derived Key".
-    Only T(1) of the expand step is required (16 <= 32).
+    salt = PAD(u), IKM = PAD(S), L = ``HKDF_OUTPUT_LENGTH``,
+    info = ``HKDF_INFO``. Only T(1) of the expand step is required
+    (output length <= SHA-256 digest size).
     """
     salt = _PAD(u)
     ikm = _PAD(S)
     prk = hmac.new(salt, ikm, sha256).digest()
-    info = b"Caldera Derived Key"
-    t1 = hmac.new(prk, info + b"\x01", sha256).digest()
-    return t1[:16]
+    t1 = hmac.new(prk, HKDF_INFO + b"\x01", sha256).digest()
+    return t1[:HKDF_OUTPUT_LENGTH]
 
 
 def format_timestamp(t: time.struct_time | None = None) -> str:
@@ -169,12 +178,7 @@ def compute_signature(
     Returns the base64 signature.
     """
     secret_block = base64.b64decode(secret_block_b64)
-    msg = (
-        pool_name.encode()
-        + user_id_for_srp.encode()
-        + secret_block
-        + timestamp.encode()
-    )
+    msg = pool_name.encode() + user_id_for_srp.encode() + secret_block + timestamp.encode()
     sig = hmac.new(hkdf_key, msg, sha256).digest()
     return base64.b64encode(sig).decode()
 
@@ -207,7 +211,7 @@ class UserSrp:
         user_id_for_srp: str,
         pool_name: str,
         password: str,
-    ) -> Tuple[str, str]:
+    ) -> tuple[str, str]:
         """Process Cognito's PASSWORD_VERIFIER challenge.
 
         Returns ``(signature_b64, timestamp)``.
@@ -225,9 +229,7 @@ class UserSrp:
         S = compute_S(B, k, g, N, x, self._a, u)
         hkdf_key = hkdf_derive(u, S)
         ts = format_timestamp()
-        sig = compute_signature(
-            hkdf_key, pool_name, user_id_for_srp, secret_block_b64, ts
-        )
+        sig = compute_signature(hkdf_key, pool_name, user_id_for_srp, secret_block_b64, ts)
         return sig, ts
 
 
@@ -257,7 +259,7 @@ class DeviceSrp:
         B_hex: str,
         salt_hex: str,
         secret_block_b64: str,
-    ) -> Tuple[str, str]:
+    ) -> tuple[str, str]:
         if self._a is None or self._A is None:
             raise RuntimeError("DeviceSrp.start() must be called first")
         B = int(B_hex, 16)
@@ -267,18 +269,13 @@ class DeviceSrp:
         u = compute_u(self._A, B)
         if u == 0:
             raise ValueError("Invalid u (must be non-zero)")
-        x = compute_x_device(
-            self._device_group_key, self._device_key, self._device_password, salt
-        )
+        x = compute_x_device(self._device_group_key, self._device_key, self._device_password, salt)
         S = compute_S(B, k, g, N, x, self._a, u)
         hkdf_key = hkdf_derive(u, S)
         ts = format_timestamp()
         secret_block = base64.b64decode(secret_block_b64)
         msg = (
-            self._device_group_key.encode()
-            + self._device_key.encode()
-            + secret_block
-            + ts.encode()
+            self._device_group_key.encode() + self._device_key.encode() + secret_block + ts.encode()
         )
         sig = base64.b64encode(hmac.new(hkdf_key, msg, sha256).digest()).decode()
         return sig, ts
@@ -298,8 +295,8 @@ def generate_device_verifier(device_group_key: str, device_key: str) -> dict:
     where ``salt_b64`` is base64 of the raw 16-byte salt and
     ``verifier_b64`` is base64 of the *padded* (256-byte) verifier.
     """
-    password = base64.standard_b64encode(os.urandom(40)).decode()
-    salt = os.urandom(16)
+    password = base64.standard_b64encode(os.urandom(DEVICE_PASSWORD_BYTES)).decode()
+    salt = os.urandom(DEVICE_SALT_BYTES)
     salt_int = bytes_to_int(salt)
     inner = _H(f"{device_group_key}{device_key}:{password}".encode())
     x = bytes_to_int(_H(_PAD(salt_int) + inner))

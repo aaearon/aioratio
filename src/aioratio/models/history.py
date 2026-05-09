@@ -3,18 +3,14 @@
 Sources: ``charger_history/domain/model/Session.java``,
 ``TimeDataModel.java`` and ``ChargeSessionHistoryResponse.java``.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-try:
-    from typing import Any, Optional, Self
-except ImportError:  # Python 3.10
-    from typing import Any, Optional
-    from typing_extensions import Self
-
-from .vehicle import Vehicle
+from typing import Any, Self
 
 from ..exceptions import RatioApiError
+from .vehicle import Vehicle
 
 
 def _required(data: dict[str, Any], key: str) -> Any:
@@ -31,8 +27,8 @@ class TimeData:
     """
 
     time: int
-    type: Optional[str] = None
-    user_uuid: Optional[str] = None
+    type: str | None = None
+    user_uuid: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -56,10 +52,10 @@ class Session:
     session_id: str
     charger_serial_number: str
     total_charging_energy: int
-    begin: Optional[TimeData] = None
-    end: Optional[TimeData] = None
-    user_id: Optional[str] = None
-    vehicle: Optional[Vehicle] = None
+    begin: TimeData | None = None
+    end: TimeData | None = None
+    user_id: str | None = None
+    vehicle: Vehicle | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -97,7 +93,7 @@ class SessionHistoryPage:
     """
 
     sessions: list[Session] = field(default_factory=list)
-    next_token: Optional[str] = None
+    next_token: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:

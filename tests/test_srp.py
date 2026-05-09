@@ -4,20 +4,17 @@ Each test re-implements the expected value independently using the
 stdlib primitives (``hashlib``, ``hmac``, ``pow``) so a regression in
 the production code cannot pass via self-consistency.
 """
+
 from __future__ import annotations
 
 import base64
 import hashlib
 import hmac
-import os
-import secrets
 import time
-from hashlib import sha256
 
 import pytest
 
 from aioratio import srp
-
 
 # ---------------------------------------------------------------------------
 # Independent re-implementation of the primitives used by the tests.
@@ -107,9 +104,7 @@ def test_compute_u_padded_hash() -> None:
     assert srp.compute_u(A, B) == expected
     # Also confirm padded inputs were used (not raw varlen ints): swapping
     # padding to 32-byte would yield a different value.
-    short = int.from_bytes(
-        _ref_h(A.to_bytes(32, "big") + B.to_bytes(32, "big")), "big"
-    )
+    short = int.from_bytes(_ref_h(A.to_bytes(32, "big") + B.to_bytes(32, "big")), "big")
     assert srp.compute_u(A, B) != short
 
 
@@ -186,9 +181,7 @@ def test_signature_roundtrip() -> None:
     timestamp = "Thu Apr 30 17:32:00 UTC 2026"
 
     msg = pool_name.encode() + user_id.encode() + secret_block + timestamp.encode()
-    expected = base64.b64encode(
-        hmac.new(hkdf_key, msg, hashlib.sha256).digest()
-    ).decode()
+    expected = base64.b64encode(hmac.new(hkdf_key, msg, hashlib.sha256).digest()).decode()
 
     got = srp.compute_signature(hkdf_key, pool_name, user_id, secret_block_b64, timestamp)
     assert got == expected
@@ -213,9 +206,7 @@ def test_device_verifier_deterministic(monkeypatch: pytest.MonkeyPatch) -> None:
     expected_password = base64.standard_b64encode(rand40).decode()
     expected_salt_b64 = base64.b64encode(rand16).decode()
     salt_int = int.from_bytes(rand16, "big")
-    inner = _ref_h(
-        f"device-group-key-XYZdevice-key-ABC:{expected_password}".encode()
-    )
+    inner = _ref_h(f"device-group-key-XYZdevice-key-ABC:{expected_password}".encode())
     x = int.from_bytes(_ref_h(_ref_pad(salt_int) + inner), "big")
     verifier = pow(_REF_G, x, _REF_N)
     expected_verifier_b64 = base64.b64encode(_ref_pad(verifier)).decode()
@@ -240,9 +231,7 @@ def test_device_srp_x_uses_group_key() -> None:
 
     # And it must NOT match the pool-style format using these as if they
     # were pool_name and user_id (would put a colon between them).
-    pool_style_inner = _ref_h(
-        f"{device_group_key}:{device_key}:{password}".encode()
-    )
+    pool_style_inner = _ref_h(f"{device_group_key}:{device_key}:{password}".encode())
     pool_style_x = int.from_bytes(_ref_h(_ref_pad(salt) + pool_style_inner), "big")
     assert got != pool_style_x
 

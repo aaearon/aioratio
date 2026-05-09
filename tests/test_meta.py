@@ -1,4 +1,5 @@
 """Tests for package metadata (version, user-agent)."""
+
 from __future__ import annotations
 
 

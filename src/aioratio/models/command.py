@@ -3,14 +3,11 @@
 Three known commands: ``start-charge``, ``stop-charge``,
 ``grant-upgrade-permission``.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-try:
-    from typing import Any, ClassVar, Optional, Self
-except ImportError:  # Python 3.10
-    from typing import Any, ClassVar, Optional
-    from typing_extensions import Self
+from typing import Any, ClassVar, Self
 
 from ..exceptions import RatioApiError
 
@@ -25,7 +22,7 @@ def _required(data: dict[str, Any], key: str) -> Any:
 class StartCommandParameters:
     """Parameters for the ``start-charge`` command."""
 
-    vehicle_id: Optional[str] = None
+    vehicle_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -58,7 +55,9 @@ class GrantUpgradePermissionParameters:
         elif isinstance(raw_ids, (list, tuple)):
             ids = list(raw_ids)
         else:
-            raise RatioApiError(f"firmwareUpdateJobIds must be a list of IDs, got {type(raw_ids).__name__}")
+            raise RatioApiError(
+                f"firmwareUpdateJobIds must be a list of IDs, got {type(raw_ids).__name__}"
+            )
         return cls(firmware_update_job_ids=[str(i) for i in ids])
 
     def to_dict(self) -> dict[str, Any]:
@@ -78,8 +77,8 @@ class CommandRequest:
 
     transaction_id: str
     command: str
-    start_command_parameters: Optional[StartCommandParameters] = None
-    grant_upgrade_permission_parameters: Optional[GrantUpgradePermissionParameters] = None
+    start_command_parameters: StartCommandParameters | None = None
+    grant_upgrade_permission_parameters: GrantUpgradePermissionParameters | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:

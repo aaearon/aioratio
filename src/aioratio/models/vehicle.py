@@ -3,14 +3,11 @@
 Source: ``vehicles/domain/model/Vehicle.java`` and
 ``vehicles/data/data_source/VehicleResponse.java``.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-try:
-    from typing import Any, Optional, Self
-except ImportError:  # Python 3.10
-    from typing import Any, Optional
-    from typing_extensions import Self
+from typing import Any, Self
 
 
 @dataclass(slots=True)
@@ -21,10 +18,10 @@ class Vehicle:
     ctor exists with all fields defaulting to ``null``).
     """
 
-    vehicle_id: Optional[str] = None
-    vehicle_name: Optional[str] = None
-    license_plate: Optional[str] = None
-    vehicle_state: Optional[str] = None
+    vehicle_id: str | None = None
+    vehicle_name: str | None = None
+    license_plate: str | None = None
+    vehicle_state: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:

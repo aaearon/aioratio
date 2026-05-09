@@ -3,20 +3,21 @@
 The JSON snippets here are synthetic but plausible — they mirror the
 shapes inferred from the decompiled APK DTOs.
 """
+
 from __future__ import annotations
 
 import pytest
 
 from aioratio.exceptions import RatioApiError
 from aioratio.models import (
-    ChargeSchedule,
-    ChargeSessionStatus,
     Charger,
     ChargerDiagnostics,
     ChargerFirmwareStatus,
     ChargerOverview,
     ChargerStatus,
     ChargerStatusError,
+    ChargeSchedule,
+    ChargeSessionStatus,
     CommandRequest,
     CpmsConfig,
     DelayedStartSetting,
@@ -34,7 +35,6 @@ from aioratio.models import (
     Vehicle,
     WifiStatus,
 )
-
 
 # ----- Charger ---------------------------------------------------------------
 
@@ -81,9 +81,7 @@ def test_charger_status_nested_construction():
 
 
 def test_charger_status_missing_optional():
-    status = ChargerStatus.from_dict(
-        {"isChargeStartAllowed": False, "isChargeStopAllowed": False}
-    )
+    status = ChargerStatus.from_dict({"isChargeStartAllowed": False, "isChargeStopAllowed": False})
     assert status.indicators is None
 
 
@@ -103,9 +101,7 @@ def test_charger_overview_full_nested():
         "chargerFirmwareStatus": {
             "isFirmwareUpdateAvailable": False,
             "isFirmwareUpdateAllowed": True,
-            "firmwareUpdateJobs": [
-                {"jobId": "j1", "type": "MAIN", "status": "PENDING"}
-            ],
+            "firmwareUpdateJobs": [{"jobId": "j1", "type": "MAIN", "status": "PENDING"}],
             "firmwareUpdateStatus": "IDLE",
         },
         "lastUpdatedTimestamps": [
@@ -218,16 +214,26 @@ def test_charge_schedule_from_per_day_get_response():
         "randomizedTimeOffsetEnabled": {"value": False},
         "weekSchedule": {
             "monday": [
-                {"beginTimeHour": 22, "beginTimeMinute": 0,
-                 "endTimeHour": 6, "endTimeMinute": 0, "chargingMode": "Smart"},
+                {
+                    "beginTimeHour": 22,
+                    "beginTimeMinute": 0,
+                    "endTimeHour": 6,
+                    "endTimeMinute": 0,
+                    "chargingMode": "Smart",
+                },
             ],
             "tuesday": [],
             "wednesday": [],
             "thursday": [],
             "friday": [],
             "saturday": [
-                {"beginTimeHour": 23, "beginTimeMinute": 30,
-                 "endTimeHour": 7, "endTimeMinute": 0, "chargingMode": "Smart"},
+                {
+                    "beginTimeHour": 23,
+                    "beginTimeMinute": 30,
+                    "endTimeHour": 7,
+                    "endTimeMinute": 0,
+                    "chargingMode": "Smart",
+                },
             ],
             "sunday": [],
         },
@@ -265,8 +271,7 @@ def test_charge_schedule_with_delayed_start():
 
 
 def test_delayed_start_setting_to_dict():
-    ds = DelayedStartSetting(begin_time_hour=22, begin_time_minute=30,
-                             charging_mode="Smart")
+    ds = DelayedStartSetting(begin_time_hour=22, begin_time_minute=30, charging_mode="Smart")
     result = ds.to_dict()
     assert result == {
         "beginTimeHour": 22,
@@ -277,11 +282,13 @@ def test_delayed_start_setting_to_dict():
 
 def test_delayed_start_setting_from_flat_dict():
     """Parse flat dict (PUT shape or direct construction)."""
-    ds = DelayedStartSetting.from_dict({
-        "beginTimeHour": 7,
-        "beginTimeMinute": 0,
-        "chargingMode": "PureSolar",
-    })
+    ds = DelayedStartSetting.from_dict(
+        {
+            "beginTimeHour": 7,
+            "beginTimeMinute": 0,
+            "chargingMode": "PureSolar",
+        }
+    )
     assert ds.begin_time_hour == 7
     assert ds.begin_time_minute == 0
     assert ds.charging_mode == "PureSolar"
@@ -310,9 +317,7 @@ def test_command_request_round_trip_start():
 
 
 def test_command_request_stop_charge_no_params():
-    cr = CommandRequest.from_dict(
-        {"transactionId": "tx-2", "command": "stop-charge", "extra": 1}
-    )
+    cr = CommandRequest.from_dict({"transactionId": "tx-2", "command": "stop-charge", "extra": 1})
     assert cr.command == CommandRequest.STOP_CHARGE
     assert cr.start_command_parameters is None
     assert cr.grant_upgrade_permission_parameters is None
@@ -413,7 +418,11 @@ def test_unknown_keys_tolerated_across_models():
 
 @pytest.mark.parametrize(
     "cmd",
-    [CommandRequest.START_CHARGE, CommandRequest.STOP_CHARGE, CommandRequest.GRANT_UPGRADE_PERMISSION],
+    [
+        CommandRequest.START_CHARGE,
+        CommandRequest.STOP_CHARGE,
+        CommandRequest.GRANT_UPGRADE_PERMISSION,
+    ],
 )
 def test_command_constants(cmd: str):
     assert isinstance(cmd, str) and "-" in cmd
@@ -540,21 +549,28 @@ def test_schedule_slot_to_dict():
     payload = {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]}
     slot = ScheduleSlot.from_dict(payload)
     result = slot.to_dict()
-    assert result == {"beginTimeHour": 22, "beginTimeMinute": 0,
-                      "endTimeHour": 6, "endTimeMinute": 0}
+    assert result == {
+        "beginTimeHour": 22,
+        "beginTimeMinute": 0,
+        "endTimeHour": 6,
+        "endTimeMinute": 0,
+    }
 
 
 def test_schedule_slot_to_dict_alternative_keys():
     payload = {"startTime": "23:30", "endTime": "07:15", "days": ["SAT"]}
     slot = ScheduleSlot.from_dict(payload)
     result = slot.to_dict()
-    assert result == {"beginTimeHour": 23, "beginTimeMinute": 30,
-                      "endTimeHour": 7, "endTimeMinute": 15}
+    assert result == {
+        "beginTimeHour": 23,
+        "beginTimeMinute": 30,
+        "endTimeHour": 7,
+        "endTimeMinute": 15,
+    }
 
 
 def test_schedule_slot_to_dict_with_charging_mode():
-    slot = ScheduleSlot(start="22:00", end="06:00", days=["monday"],
-                        charging_mode="Smart")
+    slot = ScheduleSlot(start="22:00", end="06:00", days=["monday"], charging_mode="Smart")
     result = slot.to_dict()
     assert result["chargingMode"] == "Smart"
 
@@ -577,8 +593,12 @@ def test_charge_schedule_to_dict():
     assert "weekSchedule" in result
     week = result["weekSchedule"]
     assert len(week["monday"]) == 1
-    assert week["monday"][0] == {"beginTimeHour": 22, "beginTimeMinute": 0,
-                                  "endTimeHour": 6, "endTimeMinute": 0}
+    assert week["monday"][0] == {
+        "beginTimeHour": 22,
+        "beginTimeMinute": 0,
+        "endTimeHour": 6,
+        "endTimeMinute": 0,
+    }
     assert len(week["tuesday"]) == 1
     assert week["wednesday"] == []
 
@@ -588,7 +608,9 @@ def test_charge_schedule_to_dict_with_delayed_start():
         enabled=True,
         schedule_type="DelayedStart",
         delayed_start=DelayedStartSetting(
-            begin_time_hour=7, begin_time_minute=0, charging_mode="Smart",
+            begin_time_hour=7,
+            begin_time_minute=0,
+            charging_mode="Smart",
         ),
     )
     result = schedule.to_dict()
@@ -622,7 +644,11 @@ _DIAG_FULL = {
         "wifi": {
             "connected": True,
             "ipv4ReportedIfConnected": True,
-            "ipv4": {"address": "192.168.1.50", "netmask": "255.255.255.0", "gateway": "192.168.1.1"},
+            "ipv4": {
+                "address": "192.168.1.50",
+                "netmask": "255.255.255.0",
+                "gateway": "192.168.1.1",
+            },
             "ssid": "HomeNetwork",
             "rssi": -55,
         },
@@ -677,16 +703,12 @@ def test_charger_diagnostics_from_dict_full():
 
 
 def test_wifi_status_from_dict_configured_ssid_with_fallback():
-    status = WifiStatus.from_dict(
-        {"configuredSsid": "MyWifi", "rssi": -65, "connected": True}
-    )
+    status = WifiStatus.from_dict({"configuredSsid": "MyWifi", "rssi": -65, "connected": True})
     assert status.ssid == "MyWifi"
     assert status.rssi == -65
     assert status.connected is True
 
-    fallback_status = WifiStatus.from_dict(
-        {"ssid": "LegacyWifi", "rssi": -70, "connected": False}
-    )
+    fallback_status = WifiStatus.from_dict({"ssid": "LegacyWifi", "rssi": -70, "connected": False})
     assert fallback_status.ssid == "LegacyWifi"
     assert fallback_status.rssi == -70
     assert fallback_status.connected is False
@@ -701,11 +723,13 @@ def test_charger_diagnostics_from_dict_empty():
 
 
 def test_charger_diagnostics_missing_nested_fields():
-    d = ChargerDiagnostics.from_dict({
-        "productInformation": {},
-        "networkStatus": {"connectionMedium": "ETHERNET"},
-        "backendStatus": {},
-    })
+    d = ChargerDiagnostics.from_dict(
+        {
+            "productInformation": {},
+            "networkStatus": {"connectionMedium": "ETHERNET"},
+            "backendStatus": {},
+        }
+    )
     assert d.product_information is not None
     assert d.product_information.main_controller is None
     assert d.network_status is not None
@@ -725,7 +749,9 @@ def test_cpms_config_from_dict_configured_cpms_shape():
 
 
 def test_cpms_config_from_dict_configurable_cpms_shape():
-    c = CpmsConfig.from_dict({"name": "Operator B", "url": "ws://b.example.com", "cpidType": "EV_NETWORK"})
+    c = CpmsConfig.from_dict(
+        {"name": "Operator B", "url": "ws://b.example.com", "cpidType": "EV_NETWORK"}
+    )
     assert c.central_system == "Operator B"
     assert c.url == "ws://b.example.com"
 
@@ -845,6 +871,7 @@ def test_ocpp_field_status_defaults():
 
 
 # ----- Session / TimeData to_dict round-trips --------------------------------
+
 
 def test_time_data_to_dict():
     td = TimeData(time=1_700_000_000, type="start", user_uuid="u-123")

@@ -1,9 +1,11 @@
 """Token persistence for aioratio."""
+
 from __future__ import annotations
 
 import abc
 import asyncio
 import json
+import logging
 import os
 import tempfile
 import time
@@ -11,6 +13,8 @@ from dataclasses import dataclass, fields
 from typing import Any
 
 from .exceptions import RatioError
+
+_LOGGER = logging.getLogger(__name__)
 
 __all__ = [
     "TokenBundle",
@@ -46,7 +50,7 @@ class TokenBundle:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TokenBundle":
+    def from_dict(cls, data: dict[str, Any]) -> TokenBundle:
         known = {f.name for f in fields(cls)}
         filtered = {k: v for k, v in data.items() if k in known}
         return cls(**filtered)
@@ -102,7 +106,7 @@ class JsonFileTokenStore(TokenStore):
         try:
             try:
                 f = os.fdopen(fd, "w", encoding="utf-8")
-            except Exception:
+            except OSError:
                 os.close(fd)
                 raise
             with f:
@@ -111,7 +115,7 @@ class JsonFileTokenStore(TokenStore):
                 os.fsync(f.fileno())
             os.chmod(tmp_path, 0o600)
             os.replace(tmp_path, self._path)
-        except Exception:
+        except OSError:
             try:
                 os.unlink(tmp_path)
             except FileNotFoundError:
@@ -127,6 +131,7 @@ class JsonFileTokenStore(TokenStore):
     async def load(self) -> TokenBundle | None:
         async with self._lock:
             if not os.path.exists(self._path):
+                _LOGGER.debug("token file %s does not exist", self._path)
                 return None
             try:
                 data = await asyncio.to_thread(self._read)
@@ -140,7 +145,9 @@ class JsonFileTokenStore(TokenStore):
     async def save(self, bundle: TokenBundle) -> None:
         async with self._lock:
             await asyncio.to_thread(self._write, bundle.to_dict())
+            _LOGGER.debug("saved token bundle to %s", self._path)
 
     async def clear(self) -> None:
         async with self._lock:
             await asyncio.to_thread(self._unlink)
+            _LOGGER.debug("cleared token file %s", self._path)

@@ -1,11 +1,11 @@
 """Tests for RatioClient and the private _CloudTransport."""
+
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import aiohttp
@@ -20,13 +20,12 @@ from aioratio.exceptions import (
     RatioRateLimitError,
 )
 from aioratio.models import (
-    ChargeSchedule,
     ChargerOverview,
+    ChargeSchedule,
     UserSettings,
     Vehicle,
 )
 from aioratio.token_store import MemoryTokenStore, TokenBundle
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / fakes
@@ -35,9 +34,7 @@ from aioratio.token_store import MemoryTokenStore, TokenBundle
 
 def _make_id_token(sub: str = "user-abc") -> str:
     header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
-    payload = base64.urlsafe_b64encode(
-        json.dumps({"sub": sub}).encode()
-    ).rstrip(b"=").decode()
+    payload = base64.urlsafe_b64encode(json.dumps({"sub": sub}).encode()).rstrip(b"=").decode()
     return f"{header}.{payload}.sig"
 
 
@@ -68,9 +65,7 @@ class FakeTransport:
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
     ) -> Any:
-        self.calls.append(
-            {"method": method, "path": path, "params": params, "json": json}
-        )
+        self.calls.append({"method": method, "path": path, "params": params, "json": json})
         if not self._responses:
             return None
         resp = self._responses.pop(0)
@@ -357,7 +352,7 @@ async def test_solar_settings_get(client_with_fake_transport):
 async def test_session_history_query_params(client_with_fake_transport):
     client, fake = client_with_fake_transport
     fake.queue({"chargeSessions": [], "nextToken": "tok2"})
-    begin = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    begin = datetime(2026, 1, 1, tzinfo=UTC)
     end_epoch = int(begin.timestamp()) + 3600
     page = await client.session_history(
         begin_time=begin,
@@ -485,9 +480,7 @@ async def _make_http_client(base_url: str, auth) -> tuple[RatioClient, aiohttp.C
     client._auth = auth  # type: ignore[assignment]
     from aioratio._transport import _CloudTransport
 
-    client._transport = _CloudTransport(
-        auth=auth, session=session, base_url=base_url
-    )
+    client._transport = _CloudTransport(auth=auth, session=session, base_url=base_url)
     return client, session
 
 
@@ -590,9 +583,7 @@ async def test_network_error_raises_connection_error():
         from aioratio._transport import _CloudTransport
 
         # 127.0.0.1:1 is reliably refused.
-        transport = _CloudTransport(
-            auth=auth, session=session, base_url="http://127.0.0.1:1"
-        )
+        transport = _CloudTransport(auth=auth, session=session, base_url="http://127.0.0.1:1")
         with pytest.raises(RatioConnectionError):
             await transport.request("GET", "/foo")
     finally:
@@ -740,12 +731,14 @@ from aioratio.models import ChargerDiagnostics, CpmsConfig, InstallerOcppSetting
 
 async def test_diagnostics_get_url_and_parses(client_with_fake_transport):
     client, fake = client_with_fake_transport
-    fake.queue({
-        "productInformation": {
-            "mainController": {"firmwareVersion": "4.0", "serialNumber": "CPC-1"}
-        },
-        "backendStatus": {"connected": True},
-    })
+    fake.queue(
+        {
+            "productInformation": {
+                "mainController": {"firmwareVersion": "4.0", "serialNumber": "CPC-1"}
+            },
+            "backendStatus": {"connected": True},
+        }
+    )
     result = await client.diagnostics("SER1")
     call = fake.calls[0]
     assert call["method"] == "GET"
@@ -776,13 +769,24 @@ async def test_diagnostics_none_response_returns_empty(client_with_fake_transpor
 
 async def test_ocpp_settings_get_strips_envelope(client_with_fake_transport):
     client, fake = client_with_fake_transport
-    fake.queue({
-        "installerOcppSettings": {
-            "enabled": {"value": True, "isChangeAllowed": True, "changeNotAllowedReason": None},
-            "cpms": {"value": {"centralSystem": "Op", "url": "ws://op.com"}, "isChangeAllowed": True, "changeNotAllowedReason": None},
-            "chargePointIdentifier": {"value": "CP-1", "isChangeAllowed": True, "changeNotAllowedReason": None, "maxLength": 48},
+    fake.queue(
+        {
+            "installerOcppSettings": {
+                "enabled": {"value": True, "isChangeAllowed": True, "changeNotAllowedReason": None},
+                "cpms": {
+                    "value": {"centralSystem": "Op", "url": "ws://op.com"},
+                    "isChangeAllowed": True,
+                    "changeNotAllowedReason": None,
+                },
+                "chargePointIdentifier": {
+                    "value": "CP-1",
+                    "isChangeAllowed": True,
+                    "changeNotAllowedReason": None,
+                    "maxLength": 48,
+                },
+            }
         }
-    })
+    )
     result = await client.ocpp_settings("SER1")
     call = fake.calls[0]
     assert call["method"] == "GET"
@@ -832,12 +836,14 @@ async def test_set_ocpp_settings_partial_body(client_with_fake_transport):
 
 async def test_cpms_options_lists(client_with_fake_transport):
     client, fake = client_with_fake_transport
-    fake.queue({
-        "cpmsList": [
-            {"name": "Op A", "url": "ws://a.example.com", "cpidType": "EV_NETWORK"},
-            {"name": "Op B", "url": "ws://b.example.com", "cpidType": "EV_NETWORK"},
-        ]
-    })
+    fake.queue(
+        {
+            "cpmsList": [
+                {"name": "Op A", "url": "ws://a.example.com", "cpidType": "EV_NETWORK"},
+                {"name": "Op B", "url": "ws://b.example.com", "cpidType": "EV_NETWORK"},
+            ]
+        }
+    )
     result = await client.cpms_options("SER1")
     call = fake.calls[0]
     assert call["method"] == "GET"
@@ -862,9 +868,42 @@ async def test_cpms_options_none_response_returns_empty_list(client_with_fake_tr
     assert result == []
 
 
-async def test_cpms_options_api_error_returns_empty_list(client_with_fake_transport):
+async def test_cpms_options_403_returns_empty_list(client_with_fake_transport):
     from aioratio.exceptions import RatioApiError
+
     client, fake = client_with_fake_transport
-    fake.queue(RatioApiError("403 Forbidden"))
+    fake.queue(RatioApiError("HTTP 403", status=403))
     result = await client.cpms_options("SER1")
     assert result == []
+
+
+async def test_cpms_options_404_returns_empty_list(client_with_fake_transport):
+    from aioratio.exceptions import RatioApiError
+
+    client, fake = client_with_fake_transport
+    fake.queue(RatioApiError("HTTP 404", status=404))
+    result = await client.cpms_options("SER1")
+    assert result == []
+
+
+async def test_cpms_options_500_propagates(client_with_fake_transport):
+    import pytest
+
+    from aioratio.exceptions import RatioApiError
+
+    client, fake = client_with_fake_transport
+    fake.queue(RatioApiError("HTTP 500", status=500))
+    with pytest.raises(RatioApiError):
+        await client.cpms_options("SER1")
+
+
+async def test_cpms_options_unknown_status_propagates(client_with_fake_transport):
+    """Errors without a status code (legacy/unknown) should not be silently swallowed."""
+    import pytest
+
+    from aioratio.exceptions import RatioApiError
+
+    client, fake = client_with_fake_transport
+    fake.queue(RatioApiError("legacy error without status"))
+    with pytest.raises(RatioApiError):
+        await client.cpms_options("SER1")
