@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-05-10
+
+### Fixed
+
+- `FirmwareUpdateJob` now parses the cloud payload fields `firmwareUpdateJobId`,
+  `firmwareUpdateJobRequiresPermission`, `firmwareUpdateJobType`, and
+  `firmwareUpdateJobStatus`. Previously the parser looked for `jobId`/`id`/`type`/
+  `status` (none of which the cloud actually emits), so `job_id` was silently
+  `None` for every real payload — silently breaking `grant_upgrade_permission`
+  flows that rely on populated job IDs.
+
+### Changed (BREAKING)
+
+- `FirmwareUpdateJob.raw` field removed. The schema is now fully decoded from
+  `FirmwareUpdateJobDTO$$serializer.java` so the raw-payload escape hatch is no
+  longer needed.
+- `FirmwareUpdateJob.from_dict` no longer recognizes the legacy/incorrect
+  `jobId` / `id` / `type` / `status` flat keys. Callers passing those keys must
+  switch to the real cloud keys (`firmwareUpdateJob*` prefix).
+- New `FirmwareUpdateJob.requires_permission: bool` field (defaults to `True`,
+  matching the kotlinx default).
+
 ## [0.8.0] — 2026-05-09
 
 ### Added

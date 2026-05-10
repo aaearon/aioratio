@@ -93,8 +93,7 @@ async def main() -> None:
             print(f"  firmware_update_status={getattr(fws, 'firmware_update_status', None)}")
             jobs = getattr(fws, "firmware_update_jobs", []) or []
             print(f"  firmware_update_jobs: {len(jobs)}")
-            ids = [getattr(j, "job_id", None) or getattr(j, "id", None) for j in jobs]
-            ids = [i for i in ids if i]
+            ids = [j.job_id for j in jobs if j.job_id]
             print(f"  job ids: {ids}")
             available = (
                 getattr(fws, "is_firmware_update_available", False)

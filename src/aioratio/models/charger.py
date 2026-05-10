@@ -127,23 +127,21 @@ class ChargeSessionStatus:
 class FirmwareUpdateJob:
     """Firmware update job entry.
 
-    Source: ``FirmwareUpdateJobDTO.java`` — full schema not enumerated;
-    fields stored as-is.
+    Source: ``FirmwareUpdateJobDTO.java`` + ``FirmwareUpdateJobDTO$$serializer.java``.
     """
 
-    # TODO: confirm against live payload — schema not fully decoded from APK.
     job_id: str | None = None
+    requires_permission: bool = True
     type: str | None = None
     status: str | None = None
-    raw: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
         return cls(
-            job_id=data.get("jobId") or data.get("id"),
-            type=data.get("type"),
-            status=data.get("status"),
-            raw=dict(data),
+            job_id=data.get("firmwareUpdateJobId"),
+            requires_permission=bool(data.get("firmwareUpdateJobRequiresPermission", True)),
+            type=data.get("firmwareUpdateJobType"),
+            status=data.get("firmwareUpdateJobStatus"),
         )
 
 

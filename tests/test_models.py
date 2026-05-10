@@ -21,6 +21,7 @@ from aioratio.models import (
     CommandRequest,
     CpmsConfig,
     DelayedStartSetting,
+    FirmwareUpdateJob,
     Indicators,
     InstallerOcppSettings,
     OcppFieldStatus,
@@ -101,7 +102,13 @@ def test_charger_overview_full_nested():
         "chargerFirmwareStatus": {
             "isFirmwareUpdateAvailable": False,
             "isFirmwareUpdateAllowed": True,
-            "firmwareUpdateJobs": [{"jobId": "j1", "type": "MAIN", "status": "PENDING"}],
+            "firmwareUpdateJobs": [
+                {
+                    "firmwareUpdateJobId": "j1",
+                    "firmwareUpdateJobType": "install",
+                    "firmwareUpdateJobStatus": "AVAILABLE",
+                }
+            ],
             "firmwareUpdateStatus": "IDLE",
         },
         "lastUpdatedTimestamps": [
@@ -136,6 +143,34 @@ def test_charge_session_status_optional_vehicle():
     css = ChargeSessionStatus.from_dict({"actualChargingPower": 0})
     assert css.vehicle_id is None
     assert css.actual_charging_power == 0
+
+
+def test_firmware_update_job_requires_permission_default_and_explicit():
+    # Key omitted → defaults to True (matches kotlinx default).
+    job_default = FirmwareUpdateJob.from_dict(
+        {
+            "firmwareUpdateJobId": "j1",
+            "firmwareUpdateJobType": "install",
+            "firmwareUpdateJobStatus": "AVAILABLE",
+        }
+    )
+    assert job_default.requires_permission is True
+    assert job_default.job_id == "j1"
+    assert job_default.type == "install"
+    assert job_default.status == "AVAILABLE"
+
+    # Explicit False is honoured.
+    job_explicit = FirmwareUpdateJob.from_dict(
+        {
+            "firmwareUpdateJobId": "j2",
+            "firmwareUpdateJobRequiresPermission": False,
+            "firmwareUpdateJobType": "install",
+            "firmwareUpdateJobStatus": "PENDING",
+        }
+    )
+    assert job_explicit.requires_permission is False
+    assert job_explicit.type == "install"
+    assert job_explicit.status == "PENDING"
 
 
 # ----- Settings -------------------------------------------------------------
