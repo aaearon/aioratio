@@ -51,7 +51,7 @@ class WifiInfo:
         ip = data.get("ipv4")
         return cls(
             connected=bool(data.get("connected", False)),
-            ssid=b64_decode_text(ssid_raw),
+            ssid=b64_decode_text(ssid_raw, strict=True),
             ssid_raw=ssid_raw,
             rssi=int(data["rssi"]) if data.get("rssi") is not None else None,
             ipv4=Ipv4Info.from_dict(ip) if isinstance(ip, dict) else None,

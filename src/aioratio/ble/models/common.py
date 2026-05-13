@@ -26,7 +26,9 @@ from __future__ import annotations
 import base64
 import binascii
 from dataclasses import dataclass
-from typing import Any, Final, Self
+from typing import Any, Final, Generic, Self, TypeVar
+
+from ...exceptions import RatioBleProtocolError
 
 IPC_RESULT_SUCCESS: Final[str] = "success"
 IPC_RESULT_FAILED: Final[str] = "failed"
@@ -36,17 +38,24 @@ def is_success(result: str) -> bool:
     return result.lower() == IPC_RESULT_SUCCESS
 
 
+T = TypeVar("T")
+
+
 @dataclass(slots=True)
-class SettableValue:
+class SettableValue(Generic[T]):
     """Envelope used by every field in ``Get*Settings`` responses.
+
+    Generic over the value type so callers get proper ``str`` / ``int``
+    typing on ``.value`` (e.g. ``SettableValue[str]`` for ``start_mode``,
+    ``SettableValue[int]`` for ``minimum_charging_current``).
 
     See ``ChargePointIdentifierV2$$serializer.java`` for the closest
     structurally-similar Kotlin type in the decompile.
     """
 
-    value: Any
+    value: T | None
     is_change_allowed: bool
-    allowed_values: list[Any] | None = None
+    allowed_values: list[T] | None = None
     lower_limit: int | None = None
     upper_limit: int | None = None
 
@@ -61,17 +70,27 @@ class SettableValue:
         )
 
 
-def b64_decode_text(value: str | None) -> str | None:
+def b64_decode_text(value: str | None, *, strict: bool = True) -> str | None:
     """Decode a base64 string (e.g. Wi-Fi SSID, CPMS URL) to plain text.
 
-    Returns ``None`` for ``None`` input, and falls back to the raw input
-    when decoding fails (some firmware revisions may emit plain text).
+    ``strict=True`` (the default) raises ``RatioBleProtocolError`` when the
+    input doesn't decode cleanly — this is the right policy for fields that
+    are confirmed base64 on the wire, because a silent fallback would mask
+    firmware drift or wrong-field application of the helper.
+
+    Pass ``strict=False`` for fields where the encoding hasn't been confirmed
+    against a real-hardware capture; the raw input is returned on failure so
+    older or different firmware that emits plain text doesn't blow up.
+
+    Returns ``None`` for ``None`` input.
     """
     if value is None:
         return None
     try:
         return base64.b64decode(value, validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
+    except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+        if strict:
+            raise RatioBleProtocolError(f"expected base64 text, got {value!r}: {exc}") from exc
         return value
 
 

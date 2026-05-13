@@ -32,11 +32,11 @@ class UserSettingsResponse:
 
     transaction: str
     result: str
-    start_mode: SettableValue | None = None
-    cable_settings: SettableValue | None = None
-    minimum_charging_current: SettableValue | None = None
-    maximum_charging_current: SettableValue | None = None
-    charging_mode: SettableValue | None = None
+    start_mode: SettableValue[str] | None = None
+    cable_settings: SettableValue[str] | None = None
+    minimum_charging_current: SettableValue[int] | None = None
+    maximum_charging_current: SettableValue[int] | None = None
+    charging_mode: SettableValue[str] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -85,10 +85,10 @@ class SolarSettingsResponse:
 
     transaction: str
     result: str
-    smart_solar_starting_current: SettableValue | None = None
-    pure_solar_starting_current: SettableValue | None = None
-    sun_off_delay_minutes: SettableValue | None = None
-    sun_on_delay_minutes: SettableValue | None = None
+    smart_solar_starting_current: SettableValue[int] | None = None
+    pure_solar_starting_current: SettableValue[int] | None = None
+    sun_off_delay_minutes: SettableValue[int] | None = None
+    sun_on_delay_minutes: SettableValue[int] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -137,8 +137,8 @@ class TimeSettingsResponse:
 
     transaction: str
     result: str
-    time_zone_area_location: SettableValue | None = None
-    time_zone_posix: SettableValue | None = None
+    time_zone_area_location: SettableValue[str] | None = None
+    time_zone_posix: SettableValue[str] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:

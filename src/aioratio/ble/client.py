@@ -221,13 +221,30 @@ class BleClient:
     async def wifi_connect(self, ssid: str, password: str | None) -> WifiConnectResponse:
         """Connect the charger to a Wi-Fi network.
 
-        SSID is base64-encoded on the wire (per the v3.13.2 walk); callers
-        pass plain text and the encoding happens here. Password handling is
-        not yet observed on the wire — we send it plain text and will adjust
-        once a real WifiConnect request capture is available.
+        SSID is base64-encoded on the wire — confirmed against v3.13.2 firmware
+        on ``GetNetworkStatusResponse.wifi.configuredSsid``. Callers pass plain
+        text; we encode here.
+
+        **Password handling is PROVISIONAL.** The on-wire form of
+        ``WifiConnectRequest.password`` has not been captured against real
+        hardware. If the firmware expects base64 (matching ``ssid``), sending
+        plain text here will silently fail to connect — the charger may simply
+        reject the join without surfacing a parse error. When a non-``None``
+        password is provided we emit a ``RuntimeWarning`` so the caller can
+        decide whether to proceed. Open networks (``password=None``) are
+        unaffected.
         """
+        import warnings
+
         payload: dict[str, Any] = {"ssid": b64_encode_text(ssid)}
         if password is not None:
+            warnings.warn(
+                "WifiConnectRequest password wire format is unverified; the "
+                "charger may silently reject this credential. Open this issue "
+                "with a Wireshark/btsnoop capture if you can.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             payload["password"] = password
         body = await self._exchange("WifiConnectRequest", payload)
         return WifiConnectResponse.from_dict(body)

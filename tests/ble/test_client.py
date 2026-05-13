@@ -164,7 +164,13 @@ async def test_set_time_settings_required_fields(transport: FakeBleTransport) ->
 
 
 async def test_wifi_connect_base64_encodes_ssid(transport: FakeBleTransport) -> None:
-    """Per the 2026-05-13 walk, SSIDs are base64-encoded on the wire."""
+    """Per the 2026-05-13 walk, SSIDs are base64-encoded on the wire.
+
+    Password handling is provisional — passing a non-``None`` password must
+    emit a ``RuntimeWarning`` so the caller can decide whether to proceed.
+    """
+    import warnings
+
     transport.register_static(
         "WifiConnectRequest",
         "WifiConnectResponse",
@@ -173,11 +179,35 @@ async def test_wifi_connect_base64_encodes_ssid(transport: FakeBleTransport) -> 
     client = BleClient(transport=transport)
     await client.connect()
     try:
-        await client.wifi_connect("TestNet", password="hunter2")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            await client.wifi_connect("TestNet", password="hunter2")
         body = json.loads(transport.writes[0][len("WifiConnectRequest") : -1])
-        # SSID is base64; password is sent plain (until a real capture proves otherwise).
         assert body["ssid"] == "VGVzdE5ldA=="
         assert body["password"] == "hunter2"
+        runtime_warnings = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+        assert any("password wire format" in str(w.message) for w in runtime_warnings)
+    finally:
+        await client.disconnect()
+
+
+async def test_wifi_connect_open_network_no_warning(transport: FakeBleTransport) -> None:
+    """``password=None`` (open network) must not emit a RuntimeWarning."""
+    import warnings
+
+    transport.register_static(
+        "WifiConnectRequest",
+        "WifiConnectResponse",
+        {"result": "success"},
+    )
+    client = BleClient(transport=transport)
+    await client.connect()
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            await client.wifi_connect("TestNet", password=None)
+        runtime_warnings = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+        assert runtime_warnings == []
     finally:
         await client.disconnect()
 

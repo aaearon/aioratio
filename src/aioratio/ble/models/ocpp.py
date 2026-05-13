@@ -38,9 +38,9 @@ class OcppCpms:
         cs = data.get("centralSystem")
         u = data.get("url")
         return cls(
-            central_system=b64_decode_text(cs),
+            central_system=b64_decode_text(cs, strict=True),
             central_system_raw=cs,
-            url=b64_decode_text(u),
+            url=b64_decode_text(u, strict=True),
             url_raw=u,
         )
 

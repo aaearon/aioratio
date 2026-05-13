@@ -8,10 +8,15 @@ Sources (all under ``charger_onboarding/data/data_source/ble/``):
   - ``WifiConnectResponse$$serializer.java`` — transaction, result
 
 **SSID values are base64-encoded on the wire.** The 2026-05-13 v3.13.2 hardware
-walk confirmed this on ``configuredSsid`` (and the same encoding is expected
-on ``WifiAccessPointResponse.ssid``). The dataclasses below surface plain text
-via ``ssid`` and keep the raw wire form in ``ssid_raw``. ``WifiConnectRequest``
-re-encodes the SSID on the way out so callers can pass plain text.
+walk confirmed this on ``GetNetworkStatusResponse.wifi.configuredSsid``.
+``WifiAccessPointResponse.ssid`` has not yet been observed populated against
+real hardware (the walk did not invoke a Wi-Fi scan), so the base64 decoding
+here is a **working hypothesis** based on field-name symmetry with
+``configuredSsid`` — decoded permissively (``strict=False``) so older or
+different firmware that emits plain text doesn't crash the parse. The
+dataclasses below surface plain text via ``ssid`` and keep the raw wire form
+in ``ssid_raw``. ``WifiConnectRequest`` re-encodes the SSID on the way out so
+callers can pass plain text.
 
 WifiScan + WifiAccessPoint are paired: WifiScan returns the count, then the
 caller iterates ``WifiAccessPointRequest(index=i)`` to pull each AP.
@@ -62,7 +67,7 @@ class WifiAccessPoint:
             transaction=data["transaction"],
             result=data["result"],
             index=int(data["index"]),
-            ssid=b64_decode_text(ssid_raw),
+            ssid=b64_decode_text(ssid_raw, strict=False),
             ssid_raw=ssid_raw,
             rssi=int(data["rssi"]) if data.get("rssi") is not None else None,
         )

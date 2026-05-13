@@ -66,6 +66,16 @@ def test_b64_roundtrip() -> None:
     assert b64_encode_text(None) is None
 
 
-def test_b64_decode_falls_back_to_raw_on_invalid_input() -> None:
-    # Older firmware may emit plain text on these fields; do not crash.
-    assert b64_decode_text("plain-text") == "plain-text"
+def test_b64_decode_raises_on_invalid_input_in_strict_mode() -> None:
+    """Default ``strict=True`` surfaces firmware drift instead of masking it."""
+    import pytest
+
+    from aioratio.exceptions import RatioBleProtocolError
+
+    with pytest.raises(RatioBleProtocolError):
+        b64_decode_text("plain-text")
+
+
+def test_b64_decode_falls_back_to_raw_when_not_strict() -> None:
+    """Permissive mode accepts plain text (older / divergent firmware)."""
+    assert b64_decode_text("plain-text", strict=False) == "plain-text"
