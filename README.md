@@ -184,6 +184,16 @@ if adv is not None:
     print(adv.local_name, hex(adv.manufacturer_byte))
 ```
 
+Home Assistant's `BluetoothServiceInfoBleak` exposes `.name` (not
+`.local_name`) and `.manufacturer_data` — use `parse_service_info` to skip
+the field re-mapping in `async_step_bluetooth`:
+
+```python
+from aioratio.ble import parse_service_info
+
+adv = parse_service_info(discovery_info)
+```
+
 Note: the advertised manufacturer byte is **not** the IPC protocol version.
 One charger advertises `0x03` but reports `0x06` (BASELINE_4_0_0) on the
 Version characteristic — read the characteristic for the authoritative value.
