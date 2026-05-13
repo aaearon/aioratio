@@ -16,6 +16,7 @@ from aioratio.ble.models import (
 )
 from aioratio.exceptions import (
     RatioBleConnectionError,
+    RatioBleNotBondedError,
     RatioBleUnsupportedCommandError,
 )
 
@@ -291,3 +292,90 @@ async def test_disconnected_callback_runs(transport: FakeBleTransport) -> None:
     await client.connect()
     await client.disconnect()
     assert called == [1]
+
+
+class _AuthFailingTransport(FakeBleTransport):
+    """Surfaces an Insufficient-Authentication-style error from read_version.
+
+    Matches what bleak's BlueZ backend reports when the peer requires bonding:
+    the Version characteristic read fails with the peer kicking the link
+    before the GATT op completes.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__()
+        self._message = message
+
+    async def read_version(self) -> int:
+        raise OSError(self._message)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Could not read Version characteristic: Insufficient Authentication",
+        "org.bluez.Error.Failed: ATT error: 0x05",
+        "GATT operation failed: Insufficient Encryption",
+        "ATT error: 0x0f",  # insufficient encryption key size
+    ],
+)
+async def test_connect_raises_not_bonded_on_auth_failure(message: str) -> None:
+    transport = _AuthFailingTransport(message)
+    client = BleClient(transport=transport)
+    with pytest.raises(RatioBleNotBondedError):
+        await client.connect()
+    assert client.is_connected is False
+
+
+async def test_connect_raises_generic_connection_error_on_other_failures() -> None:
+    transport = _AuthFailingTransport("Device disconnected before reply")
+    client = BleClient(transport=transport)
+    with pytest.raises(RatioBleConnectionError) as info:
+        await client.connect()
+    # Must not be the bond-required subclass — caller distinguishes UX paths.
+    assert not isinstance(info.value, RatioBleNotBondedError)
+
+
+async def test_async_context_manager_connects_and_disconnects(
+    transport: FakeBleTransport,
+) -> None:
+    async with BleClient(transport=transport) as client:
+        assert client.is_connected is True
+    assert transport.disconnected_count == 1
+
+
+async def test_async_context_manager_disconnects_on_exception(
+    transport: FakeBleTransport,
+) -> None:
+    class _Boom(Exception):
+        pass
+
+    with pytest.raises(_Boom):
+        async with BleClient(transport=transport):
+            raise _Boom
+
+    assert transport.disconnected_count == 1
+
+
+async def test_from_service_info_constructs_with_device_from_info() -> None:
+    """Anything carrying a ``BLEDevice`` on ``.device`` works.
+
+    Matches the shape of HA's ``BluetoothServiceInfoBleak`` without importing
+    the HA-only type.
+    """
+    from types import SimpleNamespace
+
+    from bleak.backends.device import BLEDevice
+
+    # Minimal ``details`` keeps BleakClient's BlueZ backend constructor happy
+    # without touching any real adapter.
+    fake_device = BLEDevice(
+        "AA:BB:CC:DD:EE:FF",
+        "RATIO_TEST",
+        {"path": "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"},
+    )
+    info = SimpleNamespace(device=fake_device)
+
+    client = BleClient.from_service_info(info)
+    assert isinstance(client, BleClient)
+    assert client.is_connected is False

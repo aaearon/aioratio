@@ -20,7 +20,11 @@ import asyncio
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from ..exceptions import RatioBleConnectionError, RatioBleProtocolError
+from ..exceptions import (
+    RatioBleConnectionError,
+    RatioBleNotBondedError,
+    RatioBleProtocolError,
+)
 from .codec import decode_responses, encode_request
 from .models import (
     BackendStatusResponse,
@@ -89,6 +93,30 @@ class BleClient:
     # ------------------------------------------------------------------ ctor
 
     @classmethod
+    def from_service_info(
+        cls,
+        service_info: Any,
+        *,
+        disconnected_callback: DisconnectedCallback | None = None,
+        command_timeout: float = 15.0,
+        connect_timeout: float = 20.0,
+    ) -> BleClient:
+        """Construct from anything carrying a ``BLEDevice`` on ``.device``.
+
+        Matches the shape of Home Assistant's ``BluetoothServiceInfoBleak``
+        (``home_assistant_bluetooth.BluetoothServiceInfoBleak``) so a HA
+        ``async_step_bluetooth`` handler can do
+        ``BleClient.from_service_info(discovery_info)`` without aioratio
+        depending on the HA-only type.
+        """
+        return cls(
+            device=service_info.device,
+            disconnected_callback=disconnected_callback,
+            command_timeout=command_timeout,
+            connect_timeout=connect_timeout,
+        )
+
+    @classmethod
     async def from_address(
         cls,
         address: str,
@@ -124,6 +152,10 @@ class BleClient:
             await self._transport.connect()
             self._protocol_version = await self._transport.read_version()
         except Exception as exc:
+            if _looks_like_bond_required(exc):
+                raise RatioBleNotBondedError(
+                    f"charger requires a bonded link before GATT access: {exc}"
+                ) from exc
             raise RatioBleConnectionError(f"BLE connect failed: {exc}") from exc
         self._connected = True
 
@@ -141,6 +173,13 @@ class BleClient:
                     cb()
                 except Exception:  # noqa: BLE001 — user callback
                     pass
+
+    async def __aenter__(self) -> BleClient:
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        await self.disconnect()
 
     # ----------------------------------------------------------- properties
 
@@ -294,6 +333,24 @@ class BleClient:
                 )
             )
             self._rx_buffer.clear()
+
+
+# Substrings that BlueZ / bleak surface when a peer rejects GATT access for
+# lack of an SMP bond. Matched against ``str(exc).lower()`` because the
+# concrete exception class varies between bleak backends (BleakError,
+# BleakDBusError, OSError, BleakGATTProtocolError ...).
+_BOND_REQUIRED_MARKERS = (
+    "insufficient authentication",
+    "insufficient encryption",
+    "att error: 0x05",  # insufficient authentication
+    "att error: 0x0f",  # insufficient encryption key size
+    "not paired",
+)
+
+
+def _looks_like_bond_required(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _BOND_REQUIRED_MARKERS)
 
 
 __all__ = ["BleClient"]

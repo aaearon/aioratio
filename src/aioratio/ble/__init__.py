@@ -11,5 +11,6 @@ from ._bleak_check import require_bleak
 require_bleak()
 
 from .client import BleClient  # noqa: E402
+from .discovery import RatioAdvertisement, parse_advertisement  # noqa: E402
 
-__all__ = ["BleClient"]
+__all__ = ["BleClient", "RatioAdvertisement", "parse_advertisement"]

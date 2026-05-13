@@ -36,6 +36,23 @@
   `RatioBleUnsupportedCommandError`. All descend from `RatioError`.
 - `aioratio.ble.const` exposes the Inspiro IPC GATT UUIDs, advertisement
   filters (manufacturer ID `0x0BFF` / 3071), and `BleProtocolVersions`.
+- `aioratio.ble.parse_advertisement(local_name, manufacturer_data)` /
+  `RatioAdvertisement`: discovery helper for HA's `async_step_bluetooth`
+  (and any custom scanner) — accepts the same shape as
+  `bleak.backends.scanner.AdvertisementData`, returns `None` for non-Ratio
+  adverts. Surfaces the manufacturer byte but does not interpret it as the
+  protocol version (see notes).
+- `BleClient` is now an async context manager: `async with BleClient(...) as c:`
+  calls `connect()` / `disconnect()` automatically.
+- `BleClient.from_service_info(discovery_info)` classmethod constructs from
+  anything carrying a `BLEDevice` on `.device` — matches the shape of HA's
+  `home_assistant_bluetooth.BluetoothServiceInfoBleak` without aioratio
+  importing the HA-only type.
+- `BleClient.connect()` now distinguishes auth/bond failures from generic
+  transport failures: peers reporting Insufficient Authentication /
+  Insufficient Encryption / ATT 0x05 / ATT 0x0f raise `RatioBleNotBondedError`
+  instead of the generic `RatioBleConnectionError`, letting HA UX surface a
+  "please pair the charger" hint.
 - `scripts/ble_smoke.py` walks the priority reads against a real charger
   (excluded from the wheel).
 
@@ -44,9 +61,14 @@
 - Bonding is required: the charger returns
   `BleakGATTProtocolError: Insufficient Authentication` on every GATT
   operation until pair completes. Pairing uses a per-device PIN printed in
-  the charger documentation, so `BleClient` cannot auto-bond — the caller's
-  OS (Windows Bluetooth settings, BlueZ `bluetoothctl pair`, HA `bluetooth`
-  integration, or the mobile app) must complete pairing first.
+  the charger documentation, so `BleClient` cannot auto-bond. On Linux /
+  Home Assistant, callers register their own `org.bluez.Agent1` (e.g. via
+  `python-dbus-fast`, which HA already ships) with `KeyboardOnly` /
+  `KeyboardDisplay` capability and supply the PIN from `RequestPasskey`;
+  HACS precedent: `phurth/ha-onecontrol`, `nogic1008/ha_lixil_shutter`.
+  On Windows / macOS the OS Bluetooth dialog handles passkey entry. The
+  Home Assistant `bluetooth` integration itself does **not** perform SMP
+  pairing — that lives in the consuming integration's config flow.
 - `IpcTransactionResult` is lowercase `"success"` / `"failed"` on the wire
   even though the decompiled descriptor implied title case;
   `is_success()` is case-insensitive defensively.
