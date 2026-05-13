@@ -23,10 +23,13 @@ from typing import TYPE_CHECKING, Any
 from ..exceptions import RatioBleConnectionError, RatioBleProtocolError
 from .codec import decode_responses, encode_request
 from .models import (
+    BackendStatusResponse,
     ChargeControl,
     ChargeControlResponse,
     ChargerSensorValuesResponse,
     ChargerStatusResponse,
+    NetworkStatusResponse,
+    OcppStatusResponse,
     ProductInformationResponse,
     SolarSettingsResponse,
     SolarSettingsUpdate,
@@ -37,6 +40,7 @@ from .models import (
     WifiAccessPoint,
     WifiConnectResponse,
     WifiScanResponse,
+    b64_encode_text,
 )
 from .protocol import require_version
 from .transactions import TransactionRegistry, new_transaction_id
@@ -188,6 +192,18 @@ class BleClient:
     async def set_time_settings(self, update: TimeSettingsUpdate) -> None:
         await self._exchange("SetTimeSettingsRequest", update.to_dict())
 
+    async def get_network_status(self) -> NetworkStatusResponse:
+        body = await self._exchange("GetNetworkStatusRequest", {})
+        return NetworkStatusResponse.from_dict(body)
+
+    async def get_ocpp_status(self) -> OcppStatusResponse:
+        body = await self._exchange("GetOcppStatusRequest", {})
+        return OcppStatusResponse.from_dict(body)
+
+    async def get_backend_status(self) -> BackendStatusResponse:
+        body = await self._exchange("GetBackendStatusRequest", {})
+        return BackendStatusResponse.from_dict(body)
+
     async def wifi_scan(self) -> list[WifiAccessPoint]:
         """Trigger a scan and pull every reported access point.
 
@@ -203,7 +219,14 @@ class BleClient:
         return results
 
     async def wifi_connect(self, ssid: str, password: str | None) -> WifiConnectResponse:
-        payload: dict[str, Any] = {"ssid": ssid}
+        """Connect the charger to a Wi-Fi network.
+
+        SSID is base64-encoded on the wire (per the v3.13.2 walk); callers
+        pass plain text and the encoding happens here. Password handling is
+        not yet observed on the wire — we send it plain text and will adjust
+        once a real WifiConnect request capture is available.
+        """
+        payload: dict[str, Any] = {"ssid": b64_encode_text(ssid)}
         if password is not None:
             payload["password"] = password
         body = await self._exchange("WifiConnectRequest", payload)

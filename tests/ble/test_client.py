@@ -53,7 +53,7 @@ async def test_get_charger_status_round_trip(transport: FakeBleTransport) -> Non
         "ChargerStatusRequest",
         "ChargerStatusResponse",
         {
-            "result": "Success",
+            "result": "success",
             "cloudConnectionState": "Connected",
             "isChargeStartAllowed": True,
             "isChargeStopAllowed": False,
@@ -74,7 +74,7 @@ async def test_get_charger_status_round_trip(transport: FakeBleTransport) -> Non
     client = await _connected_client(transport)
     try:
         status = await client.get_charger_status()
-        assert status.result == "Success"
+        assert status.result == "success"
         assert status.is_charge_start_allowed is True
         assert status.indicators is not None
         assert status.indicators.charging_state == "Idle"
@@ -89,12 +89,12 @@ async def test_charge_control_sends_control_field(transport: FakeBleTransport) -
     transport.register_static(
         "ChargeControlRequest",
         "ChargeControlResponse",
-        {"result": "Success"},
+        {"result": "success"},
     )
     client = await _connected_client(transport)
     try:
         resp = await client.charge_control(ChargeControl.STOP)
-        assert resp.result == "Success"
+        assert resp.result == "success"
         # Check the on-wire body had control=Stop.
         body = json.loads(transport.writes[0][len("ChargeControlRequest") : -1])
         assert body["control"] == "Stop"
@@ -110,7 +110,7 @@ async def test_set_user_settings_emits_only_provided_fields(
     transport.register_static(
         "SetUserSettingsRequest",
         "SetUserSettingsResponse",
-        {"result": "Success"},
+        {"result": "success"},
     )
     client = await _connected_client(transport)
     try:
@@ -127,7 +127,7 @@ async def test_set_solar_settings_serializes_keys(transport: FakeBleTransport) -
     transport.register_static(
         "SetSolarSettingsRequest",
         "SetSolarSettingsResponse",
-        {"result": "Success"},
+        {"result": "success"},
     )
     client = await _connected_client(transport)
     try:
@@ -146,7 +146,7 @@ async def test_set_time_settings_required_fields(transport: FakeBleTransport) ->
     transport.register_static(
         "SetTimeSettingsRequest",
         "SetTimeSettingsResponse",
-        {"result": "Success"},
+        {"result": "success"},
     )
     client = await _connected_client(transport)
     try:
@@ -163,20 +163,41 @@ async def test_set_time_settings_required_fields(transport: FakeBleTransport) ->
         await client.disconnect()
 
 
+async def test_wifi_connect_base64_encodes_ssid(transport: FakeBleTransport) -> None:
+    """Per the 2026-05-13 walk, SSIDs are base64-encoded on the wire."""
+    transport.register_static(
+        "WifiConnectRequest",
+        "WifiConnectResponse",
+        {"result": "success"},
+    )
+    client = BleClient(transport=transport)
+    await client.connect()
+    try:
+        await client.wifi_connect("TestNet", password="hunter2")
+        body = json.loads(transport.writes[0][len("WifiConnectRequest") : -1])
+        # SSID is base64; password is sent plain (until a real capture proves otherwise).
+        assert body["ssid"] == "VGVzdE5ldA=="
+        assert body["password"] == "hunter2"
+    finally:
+        await client.disconnect()
+
+
 async def test_wifi_scan_iterates_access_points(transport: FakeBleTransport) -> None:
     transport.register_static(
         "WifiScanRequest",
         "WifiScanResponse",
-        {"result": "Success", "numberOfFoundNetworks": 2},
+        {"result": "success", "numberOfFoundNetworks": 2},
     )
 
     def ap_factory(req: dict) -> tuple[str, dict]:
+        from aioratio.ble.models import b64_encode_text
+
         idx = int(req["index"])
         return "WifiAccessPointResponse", {
             "transaction": req["transaction"],
-            "result": "Success",
+            "result": "success",
             "index": idx,
-            "ssid": f"net-{idx}",
+            "ssid": b64_encode_text(f"net-{idx}"),
             "rssi": -50 - idx,
         }
 
@@ -185,6 +206,7 @@ async def test_wifi_scan_iterates_access_points(transport: FakeBleTransport) -> 
     client = await _connected_client(transport)
     try:
         aps = await client.wifi_scan()
+        # SSIDs are surfaced decoded from base64.
         assert [a.ssid for a in aps] == ["net-0", "net-1"]
         assert [a.rssi for a in aps] == [-50, -51]
     finally:

@@ -10,7 +10,7 @@ from ._serializer_refs import SERIALIZER_KEYS
 def test_charger_status_response_full_payload() -> None:
     raw = {
         "transaction": "abc",
-        "result": "Success",
+        "result": "success",
         "cloudConnectionState": "Connected",
         "isChargeStartAllowed": True,
         "isChargeStopAllowed": False,
@@ -29,7 +29,7 @@ def test_charger_status_response_full_payload() -> None:
     }
     parsed = ChargerStatusResponse.from_dict(raw)
     assert parsed.transaction == "abc"
-    assert parsed.result == "Success"
+    assert parsed.result == "success"
     assert parsed.cloud_connection_state == "Connected"
     assert parsed.is_charge_start_allowed is True
     assert parsed.is_charge_stop_allowed is False
@@ -41,7 +41,7 @@ def test_charger_status_response_full_payload() -> None:
 def test_charger_status_response_missing_indicators_block() -> None:
     raw = {
         "transaction": "x",
-        "result": "Success",
+        "result": "success",
         "isChargeStartAllowed": False,
         "isChargeStopAllowed": False,
     }

@@ -24,11 +24,11 @@ def test_new_transaction_ids_are_unique() -> None:
 async def test_register_then_resolve_with_exact_match() -> None:
     reg = TransactionRegistry()
     fut = reg.register("abc123")
-    matched = reg.resolve("X", {"transaction": "abc123", "result": "Success"})
+    matched = reg.resolve("X", {"transaction": "abc123", "result": "success"})
     assert matched is True
     cls, body = await fut
     assert cls == "X"
-    assert body["result"] == "Success"
+    assert body["result"] == "success"
 
 
 async def test_resolve_with_substring_match() -> None:

@@ -25,20 +25,20 @@ def test_encode_request_preserves_unicode() -> None:
 
 
 def test_decode_single_frame() -> None:
-    buf = bytearray(b'ChargerStatusResponse{"transaction":"abc","result":"Success"}\x00')
+    buf = bytearray(b'ChargerStatusResponse{"transaction":"abc","result":"success"}\x00')
     frames = list(decode_responses(buf))
-    assert frames == [("ChargerStatusResponse", {"transaction": "abc", "result": "Success"})]
+    assert frames == [("ChargerStatusResponse", {"transaction": "abc", "result": "success"})]
     assert buf == bytearray()
 
 
 def test_decode_concatenated_frames_in_one_packet() -> None:
     buf = bytearray(
-        b'ChargerStatusResponse{"transaction":"abc","result":"Success"}\x00'
+        b'ChargerStatusResponse{"transaction":"abc","result":"success"}\x00'
         b'ChargeControlResponse{"transaction":"def","result":"Failed"}\x00'
     )
     frames = list(decode_responses(buf))
     assert frames == [
-        ("ChargerStatusResponse", {"transaction": "abc", "result": "Success"}),
+        ("ChargerStatusResponse", {"transaction": "abc", "result": "success"}),
         ("ChargeControlResponse", {"transaction": "def", "result": "Failed"}),
     ]
     assert buf == bytearray()

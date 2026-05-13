@@ -2,6 +2,54 @@
 
 ## [Unreleased]
 
+### Changed — real-hardware wire corrections (BLE)
+
+The 2026-05-13 v3.13.2 firmware walk surfaced several wire-format
+discrepancies vs. what the decompiled Kotlin `$$serializer.java` descriptors
+implied. Applied before v0.10.0 ships to PyPI:
+
+- `IpcTransactionResult` value is lowercase `"success"` / `"failed"` on the
+  wire (descriptor strings are case-shifted vs runtime).
+  `is_success()` is now case-insensitive defensively.
+- `Get{User,Solar,Time}SettingsResponse` fields are returned wrapped in a
+  `SettableValue` envelope: `{value, isChangeAllowed, allowedValues?, lowerLimit?, upperLimit?}`.
+  Models now expose typed `SettableValue` instances; Set\* updates still
+  emit flat values (the wire is asymmetric).
+- `GetProductInformationResponse.connectivityController` now carries
+  `serialNumber` (the descriptor omitted it). `mainController.hardwareVersion`
+  is `None` on v3.13.2 wire even though the descriptor declares it; we keep
+  the field optional.
+- `GetNetworkStatusResponse`, `GetOcppStatusResponse`, `GetBackendStatusResponse`
+  are now fully modelled (with nested `WifiInfo` / `EthernetInfo` / `Ipv4Info`
+  / `OcppCpms`). `BleClient` exposes `get_network_status()`,
+  `get_ocpp_status()`, `get_backend_status()`.
+- **Wi-Fi SSID and OCPP `centralSystem` / `url` fields are base64-encoded on
+  the wire.** Models decode them and surface the plain text via `ssid` /
+  `central_system` / `url`; the raw form is kept on the `*_raw` companion
+  attributes. `BleClient.wifi_connect()` base64-encodes the SSID on the way
+  out so callers pass plain text.
+- `ChargerSensorValuesResponse` now has units documented: voltages in
+  deciV (0.1V resolution), currents in deciA. Added convenience properties
+  `voltage_phase_{1,2,3}_volts` and `current_phase_{1,2,3}_amps` that scale
+  the raw int values.
+
+### Notes
+
+- The Phase 0 R0 (bonding-gate) question is **answered**: the charger
+  requires a bonded link before any GATT operation; the Version
+  characteristic read returns `BleakGATTProtocolError: Insufficient
+  Authentication` until pair completes. The Android app calls
+  `createBondInsecure()` but the LE pairing capabilities advertise
+  passkey-entry, so bonding requires a per-device PIN (printed in the
+  charger's documentation). Plain `BleClient` cannot auto-bond — the
+  caller's OS (Windows Settings → Bluetooth, BlueZ `bluetoothctl pair`,
+  HA `bluetooth` integration's flow, or the mobile app) must complete the
+  pairing first.
+- One charger reports `protocolVersion = 6` (BASELINE_4_0_0) from the
+  Version characteristic but advertises `0x03` in manufacturer data. The
+  advertised byte is **not** the IPC protocol version; trust the characteristic
+  read instead.
+
 ## [0.10.0] — 2026-05-13
 
 ### Added
