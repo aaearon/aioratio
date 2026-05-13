@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Fixed — Copilot review feedback (BLE)
+
+- `tests/ble/conftest.py` `importorskip("bleak")` would also skip the
+  "fail-loud if bleak is missing" guard. Moved that guard from
+  `tests/ble/test_suite_runs.py` to `tests/test_ble_suite_runs.py` (outside
+  the BLE subtree) so a CI environment without `[ble]` / `[dev]` extras can
+  no longer silently merge with the BLE suite skipped.
+- `tests/test_lazy_ble_import.py::test_ble_client_raises_without_bleak`
+  used to import `aioratio.ble` before patching `find_spec`, so it crashed
+  rather than asserted on environments where bleak was truly absent.
+  Rewritten to evict any cached `aioratio.ble*` modules and patch
+  `importlib.util.find_spec` before the lazy `aioratio.BleClient` access,
+  and the "bleak is installed" path is now guarded by `@skipif`.
+- `aioratio.ble.codec._split_classname_body` now catches
+  `UnicodeDecodeError` and re-raises `RatioBleProtocolError`, so corrupt /
+  non-UTF-8 frames surface the same way as the other framing errors and
+  the notify callback can fail pending transactions consistently.
+- `tests/test_token_store.py::test_json_file_store_file_mode_0600` is now
+  skipped on Windows; POSIX file mode bits don't apply there and the
+  assertion always failed on Windows hosts.
+
 ### Changed — real-hardware wire corrections (BLE)
 
 The 2026-05-13 v3.13.2 firmware walk surfaced several wire-format

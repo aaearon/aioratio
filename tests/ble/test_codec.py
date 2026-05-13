@@ -74,3 +74,12 @@ def test_decode_rejects_non_object_json() -> None:
     buf = bytearray(b'ChargerStatusResponse"a string"\x00')
     with pytest.raises(RatioBleProtocolError):
         list(decode_responses(buf))
+
+
+def test_decode_rejects_invalid_utf8_as_protocol_error() -> None:
+    """Corrupt/non-UTF-8 bytes must surface as RatioBleProtocolError, not
+    UnicodeDecodeError, so the notify-callback error path stays consistent."""
+    # 0xFF is invalid UTF-8 as a standalone byte.
+    buf = bytearray(b'ChargerStatusResponse{"x":"\xff"}\x00')
+    with pytest.raises(RatioBleProtocolError, match="UTF-8"):
+        list(decode_responses(buf))

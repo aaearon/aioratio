@@ -137,6 +137,7 @@ async def test_json_file_store_no_leftover_temp_files(tmp_path) -> None:
     assert leftovers == [], f"leftover temp files: {leftovers}"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes do not apply on Windows")
 async def test_json_file_store_file_mode_0600(tmp_path) -> None:
     path = tmp_path / "tokens.json"
     store = JsonFileTokenStore(path)

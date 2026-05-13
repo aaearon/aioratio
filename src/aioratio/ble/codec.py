@@ -33,7 +33,10 @@ def encode_request(classname: str, payload: dict[str, Any]) -> bytes:
 
 
 def _split_classname_body(frame: bytes) -> tuple[str, dict[str, Any]]:
-    text = frame.decode("utf-8", errors="strict")
+    try:
+        text = frame.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise RatioBleProtocolError(f"frame is not valid UTF-8: {exc}") from exc
     brace = text.find("{")
     if brace < 0:
         raise RatioBleProtocolError(f"frame has no JSON body: {text!r}")

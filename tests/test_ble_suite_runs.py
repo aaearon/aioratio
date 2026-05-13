@@ -1,4 +1,8 @@
-"""Fail loudly if ``bleak`` is missing rather than silently skipping BLE tests."""
+"""Fail loudly if ``bleak`` is missing rather than silently skipping BLE tests.
+
+Lives outside ``tests/ble/`` so the subtree-level ``importorskip("bleak")`` in
+``tests/ble/conftest.py`` cannot itself skip this guard.
+"""
 
 from __future__ import annotations
 
