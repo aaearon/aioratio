@@ -150,8 +150,19 @@ class BleClient:
         self._transport.set_tx_callback(self._on_tx)
         try:
             await self._transport.connect()
+        except Exception as exc:
+            if _looks_like_bond_required(exc):
+                raise RatioBleNotBondedError(
+                    f"charger requires a bonded link before GATT access: {exc}"
+                ) from exc
+            raise RatioBleConnectionError(f"BLE connect failed: {exc}") from exc
+        try:
             self._protocol_version = await self._transport.read_version()
         except Exception as exc:
+            try:
+                await self._transport.disconnect()
+            except Exception:
+                pass
             if _looks_like_bond_required(exc):
                 raise RatioBleNotBondedError(
                     f"charger requires a bonded link before GATT access: {exc}"
@@ -342,8 +353,10 @@ class BleClient:
 _BOND_REQUIRED_MARKERS = (
     "insufficient authentication",
     "insufficient encryption",
+    "insufficient encryption key size",
     "att error: 0x05",  # insufficient authentication
-    "att error: 0x0f",  # insufficient encryption key size
+    "att error: 0x0f",  # insufficient encryption
+    "att error: 0x0c",  # insufficient encryption key size
     "not paired",
 )
 

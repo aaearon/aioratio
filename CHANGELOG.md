@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+- BLE: BleClient.connect() now releases the transport if read_version() fails
+- BLE: _BOND_REQUIRED_MARKERS expanded with ATT 0x0c / Insufficient Encryption Key Size
+- BLE tests: added serializer-key drift coverage for Network/Ocpp/Backend response models
+- BLE: new parse_service_info() helper for HA BluetoothServiceInfoBleak
+
 ## [0.10.0] — 2026-05-13
 
 ### Added

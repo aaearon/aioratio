@@ -310,13 +310,33 @@ class _AuthFailingTransport(FakeBleTransport):
         raise OSError(self._message)
 
 
+class _ReadVersionFailingTransport(FakeBleTransport):
+    async def read_version(self) -> int:
+        raise RuntimeError("boom")
+
+
+async def test_connect_disconnects_transport_when_read_version_fails() -> None:
+    transport = _ReadVersionFailingTransport()
+    client = BleClient(transport=transport)
+
+    with pytest.raises(RatioBleConnectionError) as info:
+        await client.connect()
+
+    assert isinstance(info.value.__cause__, RuntimeError)
+    assert transport.disconnected_count == 1
+    assert client.is_connected is False
+
+
 @pytest.mark.parametrize(
     "message",
     [
         "Could not read Version characteristic: Insufficient Authentication",
         "org.bluez.Error.Failed: ATT error: 0x05",
         "GATT operation failed: Insufficient Encryption",
-        "ATT error: 0x0f",  # insufficient encryption key size
+        "ATT error: 0x0f",  # insufficient encryption
+        "ATT error: 0x0c",
+        "Insufficient Encryption Key Size",
+        "not paired",
     ],
 )
 async def test_connect_raises_not_bonded_on_auth_failure(message: str) -> None:
@@ -334,6 +354,8 @@ async def test_connect_raises_generic_connection_error_on_other_failures() -> No
         await client.connect()
     # Must not be the bond-required subclass — caller distinguishes UX paths.
     assert not isinstance(info.value, RatioBleNotBondedError)
+    assert transport.disconnected_count == 1
+    assert client.is_connected is False
 
 
 async def test_async_context_manager_connects_and_disconnects(
