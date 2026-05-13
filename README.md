@@ -15,6 +15,9 @@ exposes typed dataclass models for chargers, sessions, settings, and
 vehicles. Designed to be embedded in Home Assistant integrations or used
 directly from scripts.
 
+An optional `[ble]` extra adds a local Inspiro IPC BLE client
+(`aioratio.BleClient`) for charger control without going through the cloud.
+
 This is an unofficial library. Not affiliated with Ratio.
 
 ## Install
@@ -100,6 +103,114 @@ Token storage:
 - `JsonFileTokenStore(path)` — atomic writes, mode 0o600.
 - `MemoryTokenStore()` — for tests / ephemeral CLI use.
 - `TokenStore` (ABC) — implement `load()` / `save()` / `clear()` to plug into other backends (e.g. HA's `Store` helper).
+
+## Optional BLE support (`aioratio[ble]`)
+
+The charger speaks Inspiro IPC (null-byte-delimited JSON) over a single BLE
+GATT service. `aioratio.BleClient` is the optional local-control counterpart
+to the cloud `RatioClient`.
+
+```bash
+pip install aioratio[ble]
+```
+
+Cloud-only installs do **not** pull in `bleak`; the BLE subpackage is
+lazy-imported. Touching `aioratio.BleClient` without the `[ble]` extras
+raises `RuntimeError` with an install hint.
+
+### Quick start
+
+```python
+import asyncio
+from aioratio import BleClient
+from bleak import BleakScanner
+
+async def main() -> None:
+    device = await BleakScanner.find_device_by_address("AA:BB:CC:DD:EE:FF")
+    async with BleClient(device) as client:
+        info = await client.get_product_information()
+        status = await client.get_charger_status()
+        print(info.connectivity_controller.serial_number, status.indicators)
+
+asyncio.run(main())
+```
+
+### Public BLE API
+
+`BleClient` is an async context manager (`async with BleClient(device) as c:`).
+
+Construction options:
+
+- `BleClient(device)` — takes a `bleak.backends.device.BLEDevice`. Prefer this
+  whenever you already have a `BLEDevice` in hand (e.g. any caller routing
+  through a BLE proxy).
+- `BleClient.from_address(address)` — convenience for scripts; scans for the
+  device first.
+- `BleClient.from_service_info(info)` — accepts anything carrying a `BLEDevice`
+  on `.device` (duck-typed). Convenient when the caller is handed a
+  discovery-record wrapper rather than the raw `BLEDevice`.
+
+| Method | Returns | Notes |
+|---|---|---|
+| `connect()` / `disconnect()` | `None` | Manual lifecycle; prefer `async with`. |
+| `get_product_information()` | `ProductInformationResponse` | Serial numbers, firmware/hardware versions. |
+| `get_charger_status()` | `ChargerStatusResponse` | Cloud-connection state + charging indicators. |
+| `get_charger_sensor_values()` | `ChargerSensorValuesResponse` | Live per-phase V/I. Voltages are deciV; use `voltage_phase_{1,2,3}_volts` / `current_phase_{1,2,3}_amps`. |
+| `charge_control(control)` | `ChargeControlResponse` | `ChargeControl.START` / `STOP` / `PAUSE` / `RESUME`. |
+| `get_user_settings()` / `set_user_settings(update)` | … | Get returns `SettableValue`-wrapped fields (`{value, isChangeAllowed, allowedValues?, lowerLimit?, upperLimit?}`); set takes a flat `UserSettingsUpdate`. |
+| `get_solar_settings()` / `set_solar_settings(update)` | … | Same shape asymmetry. |
+| `get_time_settings()` / `set_time_settings(update)` | … | Same shape asymmetry. |
+| `get_network_status()` | `NetworkStatusResponse` | Wi-Fi / ethernet / IPv4 detail. SSID is base64 on the wire, decoded on `.ssid`. |
+| `get_ocpp_status()` / `get_backend_status()` | … | `central_system` / `url` are base64 on the wire, decoded on the property. |
+| `wifi_scan()` | `list[WifiAccessPoint]` | Triggers a scan and follows up with one `WifiAccessPointRequest` per AP. |
+| `wifi_connect(ssid, password)` | `WifiConnectResponse` | SSID is base64-encoded for you. Password wire format is unverified — see warning. |
+
+Each command is gated against the charger's reported Inspiro IPC protocol
+version (read from the Version characteristic on connect); calls below the
+minimum raise `RatioBleUnsupportedCommandError` before any wire write.
+
+### Discovery
+
+Chargers advertise with manufacturer ID `0x0BFF` (3071) and a local name
+prefixed `RATIO_`. `parse_advertisement` accepts the same shape as
+`bleak.backends.scanner.AdvertisementData` and returns `None` for non-Ratio
+adverts:
+
+```python
+from aioratio.ble import parse_advertisement
+
+adv = parse_advertisement(adv_data.local_name, adv_data.manufacturer_data)
+if adv is not None:
+    print(adv.local_name, hex(adv.manufacturer_byte))
+```
+
+Note: the advertised manufacturer byte is **not** the IPC protocol version.
+One charger advertises `0x03` but reports `0x06` (BASELINE_4_0_0) on the
+Version characteristic — read the characteristic for the authoritative value.
+
+### Bonding and errors
+
+The charger requires an SMP-bonded link before any GATT operation; the
+Version characteristic read returns *Insufficient Authentication* until the
+bond exists. Pairing uses a per-device PIN printed in the charger
+documentation, so `BleClient` does not auto-bond — the caller is responsible
+for bonding before `connect()` succeeds (BlueZ pairing agent on Linux, OS
+pairing dialog on Windows / macOS).
+
+When the GATT op fails for lack of a bond, `BleClient.connect()` raises
+`RatioBleNotBondedError` (a `RatioBleError` subclass), distinct from the
+generic `RatioBleConnectionError`, so callers can distinguish "needs pairing"
+from "lost the link":
+
+- `RatioBleError` — common base for the optional BLE client.
+- `RatioBleConnectionError` — transport-level failure (scan, connect, GATT).
+- `RatioBleNotBondedError` — peer rejected GATT for lack of a bond.
+- `RatioBleProtocolError` — Inspiro IPC framing or response error.
+- `RatioBleUnsupportedCommandError` — command below the charger's protocol
+  version.
+
+`scripts/ble_smoke.py` walks the priority reads against a real charger
+(excluded from the wheel).
 
 ## Architecture
 
