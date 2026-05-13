@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.10.1] — 2026-05-13
+
+### Changed
+
+- `BleakBleTransport` now connects via `bleak_retry_connector.establish_connection`
+  with retry/backoff and the `BleakClientWithServiceCache`. Eliminates the
+  `BleakClient.connect() called without bleak-retry-connector` warning seen
+  under Home Assistant and improves resilience to transient transport failures.
+- `[ble]` extra now depends on `bleak-retry-connector>=3.0,<5`.
+
 ## [0.10.0] — 2026-05-13
 
 ### Added
