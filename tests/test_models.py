@@ -715,7 +715,7 @@ _DIAG_FULL = {
     "ocppStatus": {
         "connected": True,
         "enabled": True,
-        "cpms": {"name": "Operator1", "url": "ws://ocpp.example.com/cp"},
+        "cpms": {"centralSystem": "Operator1", "url": "ws://ocpp.example.com/cp"},
     },
 }
 

@@ -156,7 +156,7 @@ class OcppDiagnosticStatus:
         cpms_name: str | None = None
         cpms_url: str | None = None
         if isinstance(cpms_raw, dict):
-            cpms_name = cpms_raw.get("name")
+            cpms_name = cpms_raw.get("centralSystem")
             cpms_url = cpms_raw.get("url")
         return cls(
             connected=data.get("connected"),

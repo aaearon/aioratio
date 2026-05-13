@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-05-13
+
+### Fixed
+
+- `OcppDiagnosticStatus.cpms_name` now reads the `centralSystem` key from the
+  cloud `ocppStatus.cpms` object. Previously it looked up `name` (which the
+  cloud never emits), so `cpms_name` was always `None` for real payloads.
+  Verified against `ConfiguredCpms$$serializer.java` and a live capture.
+
 ## [0.9.0] — 2026-05-10
 
 ### Fixed
