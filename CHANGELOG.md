@@ -1,6 +1,93 @@
 # Changelog
 
-## [Unreleased]
+## [0.10.0] — 2026-05-13
+
+### Added
+
+- Optional BLE subpackage (`aioratio.ble`) installed via `pip install aioratio[ble]`.
+  Cloud-only installs do NOT pull in `bleak`; `aioratio.BleClient` is resolved
+  lazily and raises `RuntimeError` with an install hint if the extras are missing.
+- `BleClient` covers every read command plus the user-level writes
+  (`charge_control`, `set_user_settings`, `set_solar_settings`,
+  `set_time_settings`) and the Wi-Fi recovery flow (`wifi_scan`, `wifi_connect`).
+  Each command is gated against the charger's reported Inspiro IPC protocol
+  version; calls below the minimum raise `RatioBleUnsupportedCommandError`
+  before any wire write.
+- BLE request/response dataclasses live under `aioratio.ble.models`. JSON keys
+  are taken verbatim from the decompiled `<Class>$$serializer.java` descriptors
+  (plus `SerializedNames.java` for the TimeSettings fields); the frozen
+  reference table is at `tests/ble/_serializer_refs.py`.
+- Get*Settings responses expose `SettableValue` envelopes
+  (`{value, isChangeAllowed, allowedValues?, lowerLimit?, upperLimit?}`); Set\*
+  updates still emit flat values — the wire is asymmetric.
+- `GetNetworkStatusResponse`, `GetOcppStatusResponse`,
+  `GetBackendStatusResponse` are fully modelled (`WifiInfo` / `EthernetInfo` /
+  `Ipv4Info` / `OcppCpms`), exposed via `get_network_status()`,
+  `get_ocpp_status()`, `get_backend_status()`.
+- Wi-Fi SSID and OCPP `centralSystem` / `url` fields are base64-encoded on the
+  wire; models decode and surface plain text on `ssid` / `central_system` /
+  `url` with `*_raw` companion attributes for the encoded form.
+  `BleClient.wifi_connect()` base64-encodes the SSID on the way out.
+- `ChargerSensorValuesResponse` voltages are deciV (0.1 V) and currents are
+  deciA; `voltage_phase_{1,2,3}_volts` / `current_phase_{1,2,3}_amps`
+  convenience properties scale them.
+- New exceptions: `RatioBleError`, `RatioBleConnectionError`,
+  `RatioBleProtocolError`, `RatioBleNotBondedError`,
+  `RatioBleUnsupportedCommandError`. All descend from `RatioError`.
+- `aioratio.ble.const` exposes the Inspiro IPC GATT UUIDs, advertisement
+  filters (manufacturer ID `0x0BFF` / 3071), and `BleProtocolVersions`.
+- `aioratio.ble.parse_advertisement(local_name, manufacturer_data)` /
+  `RatioAdvertisement`: discovery helper for HA's `async_step_bluetooth`
+  (and any custom scanner) — accepts the same shape as
+  `bleak.backends.scanner.AdvertisementData`, returns `None` for non-Ratio
+  adverts. Surfaces the manufacturer byte but does not interpret it as the
+  protocol version (see notes).
+- `BleClient` is now an async context manager: `async with BleClient(...) as c:`
+  calls `connect()` / `disconnect()` automatically.
+- `BleClient.from_service_info(discovery_info)` classmethod constructs from
+  anything carrying a `BLEDevice` on `.device` — matches the shape of HA's
+  `home_assistant_bluetooth.BluetoothServiceInfoBleak` without aioratio
+  importing the HA-only type.
+- `BleClient.connect()` now distinguishes auth/bond failures from generic
+  transport failures: peers reporting Insufficient Authentication /
+  Insufficient Encryption / ATT 0x05 / ATT 0x0f raise `RatioBleNotBondedError`
+  instead of the generic `RatioBleConnectionError`, letting HA UX surface a
+  "please pair the charger" hint.
+- `scripts/ble_smoke.py` walks the priority reads against a real charger
+  (excluded from the wheel).
+
+### Fixed
+
+- `BleClient.connect()` now calls `transport.disconnect()` on `read_version()` failure, preventing a transport leak.
+- `_BOND_REQUIRED_MARKERS` broadened with ATT error `0x0c` / "Insufficient Encryption Key Size".
+- `parse_advertisement` docstring corrected: HA `BluetoothServiceInfoBleak` exposes `.name`, not `.local_name`.
+
+### Changed
+
+- Added `parse_service_info(info)` helper that duck-types on `.name` / `.manufacturer_data` for HA `BluetoothServiceInfoBleak` callers.
+- Serializer-key drift tests added for `GetNetworkStatusResponse` (+ nested `WifiInfo`, `EthernetInfo`, `Ipv4Info`), `GetOcppStatusResponse`, `GetBackendStatusResponse`, `InstallerOcppSettingsV2Cpms`.
+
+### Notes
+
+- Bonding is required: the charger returns
+  `BleakGATTProtocolError: Insufficient Authentication` on every GATT
+  operation until pair completes. Pairing uses a per-device PIN printed in
+  the charger documentation, so `BleClient` cannot auto-bond. On Linux /
+  Home Assistant, callers register their own `org.bluez.Agent1` (e.g. via
+  `python-dbus-fast`, which HA already ships) with `KeyboardOnly` /
+  `KeyboardDisplay` capability and supply the PIN from `RequestPasskey`;
+  HACS precedent: `phurth/ha-onecontrol`, `nogic1008/ha_lixil_shutter`.
+  On Windows / macOS the OS Bluetooth dialog handles passkey entry. The
+  Home Assistant `bluetooth` integration itself does **not** perform SMP
+  pairing — that lives in the consuming integration's config flow.
+- `IpcTransactionResult` is lowercase `"success"` / `"failed"` on the wire
+  even though the decompiled descriptor implied title case;
+  `is_success()` is case-insensitive defensively.
+- One charger reports `protocolVersion = 6` (BASELINE_4_0_0) from the Version
+  characteristic but advertises `0x03` in manufacturer data — the advertised
+  byte is **not** the IPC protocol version; trust the characteristic read.
+- `[ble]` extras pin `bleak>=0.22,<4`.
+
 
 ## [0.9.1] — 2026-05-13
 

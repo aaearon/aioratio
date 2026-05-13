@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aioratio"
-version = "0.9.1"
+version = "0.10.0"
 description = "Async Python client for the Ratio EV Charging cloud API"
 readme = "README.md"
 license = { text = "MIT" }
@@ -34,12 +34,14 @@ Issues = "https://github.com/aaearon/aioratio/issues"
 Changelog = "https://github.com/aaearon/aioratio/releases"
 
 [project.optional-dependencies]
+ble = ["bleak>=0.22,<4"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "pytest-aiohttp>=1.0",
     "mypy>=1.8",
     "ruff>=0.6",
+    "bleak>=0.22,<4",
 ]
 
 [tool.hatch.build.targets.wheel]
