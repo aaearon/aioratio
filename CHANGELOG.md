@@ -1,12 +1,5 @@
 # Changelog
 
-## [Unreleased]
-
-- BLE: BleClient.connect() now releases the transport if read_version() fails
-- BLE: _BOND_REQUIRED_MARKERS expanded with ATT 0x0c / Insufficient Encryption Key Size
-- BLE tests: added serializer-key drift coverage for Network/Ocpp/Backend response models
-- BLE: new parse_service_info() helper for HA BluetoothServiceInfoBleak
-
 ## [0.10.0] — 2026-05-13
 
 ### Added
@@ -62,6 +55,17 @@
   "please pair the charger" hint.
 - `scripts/ble_smoke.py` walks the priority reads against a real charger
   (excluded from the wheel).
+
+### Fixed
+
+- `BleClient.connect()` now calls `transport.disconnect()` on `read_version()` failure, preventing a transport leak.
+- `_BOND_REQUIRED_MARKERS` broadened with ATT error `0x0c` / "Insufficient Encryption Key Size".
+- `parse_advertisement` docstring corrected: HA `BluetoothServiceInfoBleak` exposes `.name`, not `.local_name`.
+
+### Changed
+
+- Added `parse_service_info(info)` helper that duck-types on `.name` / `.manufacturer_data` for HA `BluetoothServiceInfoBleak` callers.
+- Serializer-key drift tests added for `GetNetworkStatusResponse` (+ nested `WifiInfo`, `EthernetInfo`, `Ipv4Info`), `GetOcppStatusResponse`, `GetBackendStatusResponse`, `InstallerOcppSettingsV2Cpms`.
 
 ### Notes
 
