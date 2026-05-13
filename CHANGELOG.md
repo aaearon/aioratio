@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-05-13
+
+### Added
+
+- Optional BLE subpackage (`aioratio.ble`) installed via `pip install aioratio[ble]`.
+  The cloud-only install path does NOT pull in `bleak`. Importing `aioratio`
+  remains lightweight; `aioratio.BleClient` is resolved lazily and raises
+  ``RuntimeError`` with an install hint if the extras are missing.
+- `BleClient` covers every read command plus the user-level writes
+  (`charge_control`, `set_user_settings`, `set_solar_settings`,
+  `set_time_settings`) and the Wi-Fi recovery flow (`wifi_scan`,
+  `wifi_connect`). Each command is gated against the charger's reported
+  Inspiro IPC protocol version (read on connect from the Version
+  characteristic); calls below the minimum raise
+  `RatioBleUnsupportedCommandError` before any wire write.
+- BLE request/response dataclasses live under `aioratio.ble.models`. JSON
+  keys are taken verbatim from the decompiled
+  `<Class>$$serializer.java` descriptors (plus
+  `SerializedNames.java` for the TimeSettings fields). The frozen
+  reference table lives at `tests/ble/_serializer_refs.py`.
+- New exceptions: `RatioBleError`, `RatioBleConnectionError`,
+  `RatioBleProtocolError`, `RatioBleNotBondedError`,
+  `RatioBleUnsupportedCommandError`. All descend from `RatioError`.
+- `aioratio.ble.const` exposes the Inspiro IPC GATT UUIDs, advertisement
+  filters, and `BleProtocolVersions` numeric mapping confirmed against the
+  decompiled v3.9.1 app.
+- `scripts/ble_smoke.py` walks the priority reads against a real charger
+  (excluded from the wheel).
+
+### Notes
+
+- The `[ble]` extras pin `bleak>=0.22,<4` to cover the bleak 3.x major
+  release that became the default after the original plan was authored.
+- Plan correction: the advert filter is **manufacturer ID `0x0BFF` (3071)**,
+  not `0x0AFF` (2815) as originally documented. The Phase 0 PoC saw
+  `0x0BFF` on every advert.
+- The bonding answer (R0 — can `bleak` auto-bond via JustWorks?) is still
+  open. The Phase 0 hardware run from the optiplex hit BlueZ
+  `ConnectionAttemptFailed` at -83 to -89 dBm with RPA rotation, so the
+  bonded vs unbonded read behaviour has not yet been observed on real
+  hardware. The library is structured to surface bonding failures as
+  `RatioBleConnectionError`. Full PoC notes live at
+  `research/ble-poc/OBSERVATIONS.md`.
+
 ## [0.9.1] — 2026-05-13
 
 ### Fixed

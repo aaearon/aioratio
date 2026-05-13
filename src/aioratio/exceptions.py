@@ -31,3 +31,23 @@ class RatioRateLimitError(RatioApiError):
 
 class RatioConnectionError(RatioError):
     """Network / connection failure."""
+
+
+class RatioBleError(RatioError):
+    """Base error for the optional BLE client (``aioratio[ble]``)."""
+
+
+class RatioBleConnectionError(RatioBleError):
+    """BLE transport-level failure: scan, connect, GATT, bond."""
+
+
+class RatioBleProtocolError(RatioBleError):
+    """Inspiro IPC framing or response error (bad classname, decode, missing transaction)."""
+
+
+class RatioBleNotBondedError(RatioBleError):
+    """Operation requires a bonded link but the device is not bonded."""
+
+
+class RatioBleUnsupportedCommandError(RatioBleError):
+    """Command is not supported by the charger's reported protocol version."""

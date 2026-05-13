@@ -1,0 +1,241 @@
+"""``BleClient`` end-to-end against ``FakeBleTransport``."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+
+import pytest
+
+from aioratio.ble.client import BleClient
+from aioratio.ble.models import (
+    ChargeControl,
+    SolarSettingsUpdate,
+    TimeSettingsUpdate,
+    UserSettingsUpdate,
+)
+from aioratio.exceptions import (
+    RatioBleConnectionError,
+    RatioBleUnsupportedCommandError,
+)
+
+from .fake_transport import FakeBleTransport
+
+
+@pytest.fixture()
+def transport() -> FakeBleTransport:
+    return FakeBleTransport(protocol_version=6)  # BASELINE_4_0_0 covers every cmd
+
+
+async def _connected_client(transport: FakeBleTransport) -> BleClient:
+    client = BleClient(transport=transport)
+    await client.connect()
+    return client
+
+
+async def test_connect_reads_protocol_version_from_transport() -> None:
+    transport = FakeBleTransport(protocol_version=3)
+    client = BleClient(transport=transport)
+    await client.connect()
+    assert client.is_connected is True
+    assert client.protocol_version == 3
+    await client.disconnect()
+    assert client.is_connected is False
+
+
+async def test_must_provide_exactly_one_of_device_or_transport() -> None:
+    with pytest.raises(TypeError):
+        BleClient()
+
+
+async def test_get_charger_status_round_trip(transport: FakeBleTransport) -> None:
+    transport.register_static(
+        "ChargerStatusRequest",
+        "ChargerStatusResponse",
+        {
+            "result": "Success",
+            "cloudConnectionState": "Connected",
+            "isChargeStartAllowed": True,
+            "isChargeStopAllowed": False,
+            "indicators": {
+                "chargingState": "Idle",
+                "actualChargingPower": 0,
+                "isVehicleConnected": False,
+                "isChargeSessionActive": False,
+                "isPowerReducedByDSO": False,
+                "isChargingPaused": False,
+                "isChargingAuthorized": None,
+                "isChargingDisabled": False,
+                "isChargingDisabledReason": None,
+                "errors": [],
+            },
+        },
+    )
+    client = await _connected_client(transport)
+    try:
+        status = await client.get_charger_status()
+        assert status.result == "Success"
+        assert status.is_charge_start_allowed is True
+        assert status.indicators is not None
+        assert status.indicators.charging_state == "Idle"
+        # One write happened, with the expected classname.
+        assert len(transport.writes) == 1
+        assert transport.writes[0].startswith(b"ChargerStatusRequest")
+    finally:
+        await client.disconnect()
+
+
+async def test_charge_control_sends_control_field(transport: FakeBleTransport) -> None:
+    transport.register_static(
+        "ChargeControlRequest",
+        "ChargeControlResponse",
+        {"result": "Success"},
+    )
+    client = await _connected_client(transport)
+    try:
+        resp = await client.charge_control(ChargeControl.STOP)
+        assert resp.result == "Success"
+        # Check the on-wire body had control=Stop.
+        body = json.loads(transport.writes[0][len("ChargeControlRequest") : -1])
+        assert body["control"] == "Stop"
+        # And a 16-char alphanumeric transaction ID.
+        assert len(body["transaction"]) == 16
+    finally:
+        await client.disconnect()
+
+
+async def test_set_user_settings_emits_only_provided_fields(
+    transport: FakeBleTransport,
+) -> None:
+    transport.register_static(
+        "SetUserSettingsRequest",
+        "SetUserSettingsResponse",
+        {"result": "Success"},
+    )
+    client = await _connected_client(transport)
+    try:
+        await client.set_user_settings(UserSettingsUpdate(maximum_charging_current=16))
+        body = json.loads(transport.writes[0][len("SetUserSettingsRequest") : -1])
+        # Only the explicit field + transaction.
+        assert set(body.keys()) == {"maximumChargingCurrent", "transaction"}
+        assert body["maximumChargingCurrent"] == 16
+    finally:
+        await client.disconnect()
+
+
+async def test_set_solar_settings_serializes_keys(transport: FakeBleTransport) -> None:
+    transport.register_static(
+        "SetSolarSettingsRequest",
+        "SetSolarSettingsResponse",
+        {"result": "Success"},
+    )
+    client = await _connected_client(transport)
+    try:
+        await client.set_solar_settings(
+            SolarSettingsUpdate(smart_solar_starting_current=6, sun_off_delay_minutes=5)
+        )
+        body = json.loads(transport.writes[0][len("SetSolarSettingsRequest") : -1])
+        assert body["smartSolarStartingCurrent"] == 6
+        assert body["sunOffDelayMinutes"] == 5
+        assert "pureSolarStartingCurrent" not in body
+    finally:
+        await client.disconnect()
+
+
+async def test_set_time_settings_required_fields(transport: FakeBleTransport) -> None:
+    transport.register_static(
+        "SetTimeSettingsRequest",
+        "SetTimeSettingsResponse",
+        {"result": "Success"},
+    )
+    client = await _connected_client(transport)
+    try:
+        await client.set_time_settings(
+            TimeSettingsUpdate(
+                time_zone_area_location="Europe/Amsterdam",
+                time_zone_posix="CET-1CEST,M3.5.0,M10.5.0/3",
+            )
+        )
+        body = json.loads(transport.writes[0][len("SetTimeSettingsRequest") : -1])
+        assert body["timeZoneAreaLocation"] == "Europe/Amsterdam"
+        assert body["timeZonePosix"].startswith("CET")
+    finally:
+        await client.disconnect()
+
+
+async def test_wifi_scan_iterates_access_points(transport: FakeBleTransport) -> None:
+    transport.register_static(
+        "WifiScanRequest",
+        "WifiScanResponse",
+        {"result": "Success", "numberOfFoundNetworks": 2},
+    )
+
+    def ap_factory(req: dict) -> tuple[str, dict]:
+        idx = int(req["index"])
+        return "WifiAccessPointResponse", {
+            "transaction": req["transaction"],
+            "result": "Success",
+            "index": idx,
+            "ssid": f"net-{idx}",
+            "rssi": -50 - idx,
+        }
+
+    transport.register_response("WifiAccessPointRequest", ap_factory)
+
+    client = await _connected_client(transport)
+    try:
+        aps = await client.wifi_scan()
+        assert [a.ssid for a in aps] == ["net-0", "net-1"]
+        assert [a.rssi for a in aps] == [-50, -51]
+    finally:
+        await client.disconnect()
+
+
+async def test_command_times_out_when_no_response(transport: FakeBleTransport) -> None:
+    # Don't register any responder — request will hang past the timeout.
+    client = BleClient(transport=transport, command_timeout=0.05)
+    await client.connect()
+    try:
+        with pytest.raises(RatioBleConnectionError, match="timeout"):
+            await client.get_charger_status()
+    finally:
+        await client.disconnect()
+
+
+async def test_unsupported_command_for_negotiated_version_raises() -> None:
+    transport = FakeBleTransport(protocol_version=3)  # below BASELINE_4_0_0
+    client = BleClient(transport=transport)
+    await client.connect()
+    try:
+        with pytest.raises(RatioBleUnsupportedCommandError):
+            await client.get_product_information()
+        # No write should have been issued.
+        assert transport.writes == []
+    finally:
+        await client.disconnect()
+
+
+async def test_exchange_requires_connection(transport: FakeBleTransport) -> None:
+    client = BleClient(transport=transport)
+    with pytest.raises(RatioBleConnectionError):
+        await client.get_charger_status()
+
+
+async def test_disconnect_fails_pending_transactions(transport: FakeBleTransport) -> None:
+    """Background pending request must surface a clear error on disconnect."""
+    client = BleClient(transport=transport, command_timeout=10.0)
+    await client.connect()
+    task = asyncio.create_task(client.get_charger_status())
+    # Give the event loop a beat to start the task.
+    await asyncio.sleep(0)
+    await client.disconnect()
+    with pytest.raises(RatioBleConnectionError):
+        await task
+
+
+async def test_disconnected_callback_runs(transport: FakeBleTransport) -> None:
+    called = []
+    client = BleClient(transport=transport, disconnected_callback=lambda: called.append(1))
+    await client.connect()
+    await client.disconnect()
+    assert called == [1]
