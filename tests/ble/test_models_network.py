@@ -2,7 +2,23 @@
 
 from __future__ import annotations
 
-from aioratio.ble.models import NetworkStatusResponse, b64_encode_text
+import pytest
+
+from aioratio.ble.models import (
+    EthernetInfo,
+    Ipv4Info,
+    NetworkStatusResponse,
+    WifiInfo,
+    b64_encode_text,
+)
+
+from ._serializer_refs import SERIALIZER_KEYS
+
+
+def _attr_path(obj: object, path: str) -> object:
+    for name in path.split("."):
+        obj = getattr(obj, name)
+    return obj
 
 
 def test_network_status_full_payload() -> None:
@@ -38,3 +54,93 @@ def test_network_status_full_payload() -> None:
     assert parsed.ethernet is not None
     assert parsed.ethernet.connected is False
     assert parsed.ethernet.ipv4 is None
+
+
+@pytest.mark.parametrize(
+    ("serializer_name", "model", "sample", "attribute_path", "expected"),
+    [
+        (
+            "GetNetworkStatusResponse",
+            NetworkStatusResponse,
+            {
+                "transaction": "t",
+                "result": "success",
+                "isTimeSynchronized": True,
+                "connectionMedium": "wifi",
+                "wifi": {
+                    "connected": True,
+                    "configuredSsid": b64_encode_text("TestNet"),
+                    "rssi": -71,
+                    "ipv4": {
+                        "address": "10.0.0.42",
+                        "netmask": "255.255.255.0",
+                        "gateway": "10.0.0.1",
+                    },
+                },
+                "ethernet": {
+                    "connected": False,
+                    "ipv4": {
+                        "address": "10.0.0.43",
+                        "netmask": "255.255.255.0",
+                        "gateway": "10.0.0.1",
+                    },
+                },
+            },
+            "wifi.ssid",
+            "TestNet",
+        ),
+        (
+            "GetNetworkStatusResponse$Wifi",
+            WifiInfo,
+            {
+                "connected": True,
+                "configuredSsid": b64_encode_text("TestNet"),
+                "rssi": -71,
+                "ipv4": {
+                    "address": "10.0.0.42",
+                    "netmask": "255.255.255.0",
+                    "gateway": "10.0.0.1",
+                },
+            },
+            "ssid",
+            "TestNet",
+        ),
+        (
+            "GetNetworkStatusResponse$Ethernet",
+            EthernetInfo,
+            {
+                "connected": True,
+                "ipv4": {
+                    "address": "10.0.0.43",
+                    "netmask": "255.255.255.0",
+                    "gateway": "10.0.0.1",
+                },
+            },
+            "ipv4.gateway",
+            "10.0.0.1",
+        ),
+        (
+            "GetNetworkStatusResponse$Ipv4",
+            Ipv4Info,
+            {
+                "address": "10.0.0.42",
+                "netmask": "255.255.255.0",
+                "gateway": "10.0.0.1",
+            },
+            "gateway",
+            "10.0.0.1",
+        ),
+    ],
+)
+def test_network_status_keys_match_serializer(
+    serializer_name: str,
+    model: object,
+    sample: dict[str, object],
+    attribute_path: str,
+    expected: object,
+) -> None:
+    assert tuple(sample) == SERIALIZER_KEYS[serializer_name]
+
+    parsed = model.from_dict(sample)
+
+    assert _attr_path(parsed, attribute_path) == expected

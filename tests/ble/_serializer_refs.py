@@ -47,6 +47,30 @@ SERIALIZER_KEYS: Final[dict[str, tuple[str, ...]]] = {
         "actualSensorBoxCurrentPhase2",
         "actualSensorBoxCurrentPhase3",
     ),
+    "GetNetworkStatusResponse": (
+        "transaction",
+        "result",
+        "isTimeSynchronized",
+        "connectionMedium",
+        "wifi",
+        "ethernet",
+    ),
+    "GetNetworkStatusResponse$Wifi": (
+        "connected",
+        "configuredSsid",
+        "rssi",
+        "ipv4",
+    ),
+    "GetNetworkStatusResponse$Ethernet": ("connected", "ipv4"),
+    "GetNetworkStatusResponse$Ipv4": ("address", "netmask", "gateway"),
+    "GetOcppStatusResponse": (
+        "transaction",
+        "result",
+        "connected",
+        "enabled",
+        "cpms",
+    ),
+    "GetBackendStatusResponse": ("transaction", "result", "connected"),
     "GetProductInformationResponse": (
         "transaction",
         "result",
@@ -112,6 +136,7 @@ SERIALIZER_KEYS: Final[dict[str, tuple[str, ...]]] = {
         "timeZonePosix",
         "transaction",
     ),
+    "InstallerOcppSettingsV2Cpms": ("centralSystem", "url"),
     # Wi-Fi onboarding (charger_onboarding/data/data_source/ble/).
     "WifiScanResponse": ("transaction", "numberOfFoundNetworks", "result"),
     "WifiAccessPointRequest": ("transaction", "index"),
