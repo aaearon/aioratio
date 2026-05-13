@@ -1,112 +1,60 @@
 # Changelog
 
-## [Unreleased]
-
-### Fixed
-
-- `codec._split_classname_body` now wraps `UnicodeDecodeError` as
-  `RatioBleProtocolError` so corrupt/non-UTF-8 frames fail pending
-  transactions through the normal notify-callback path.
-- The "fail loudly if bleak is missing" guard moved from
-  `tests/ble/test_suite_runs.py` to `tests/test_ble_suite_runs.py`, since
-  the subtree `importorskip("bleak")` would otherwise skip the guard too.
-- `test_ble_client_raises_without_bleak` now patches `find_spec` before
-  importing `aioratio.ble`, so it asserts (not crashes) when bleak is
-  truly absent.
-- `test_json_file_store_file_mode_0600` skips on Windows; POSIX mode bits
-  don't apply there.
-
-### Changed — real-hardware wire corrections (BLE)
-
-The 2026-05-13 v3.13.2 firmware walk surfaced several wire-format
-discrepancies vs. what the decompiled Kotlin `$$serializer.java` descriptors
-implied. Applied before v0.10.0 ships to PyPI:
-
-- `IpcTransactionResult` value is lowercase `"success"` / `"failed"` on the
-  wire (descriptor strings are case-shifted vs runtime).
-  `is_success()` is now case-insensitive defensively.
-- `Get{User,Solar,Time}SettingsResponse` fields are returned wrapped in a
-  `SettableValue` envelope: `{value, isChangeAllowed, allowedValues?, lowerLimit?, upperLimit?}`.
-  Models now expose typed `SettableValue` instances; Set\* updates still
-  emit flat values (the wire is asymmetric).
-- `GetProductInformationResponse.connectivityController` now carries
-  `serialNumber` (the descriptor omitted it). `mainController.hardwareVersion`
-  is `None` on v3.13.2 wire even though the descriptor declares it; we keep
-  the field optional.
-- `GetNetworkStatusResponse`, `GetOcppStatusResponse`, `GetBackendStatusResponse`
-  are now fully modelled (with nested `WifiInfo` / `EthernetInfo` / `Ipv4Info`
-  / `OcppCpms`). `BleClient` exposes `get_network_status()`,
-  `get_ocpp_status()`, `get_backend_status()`.
-- **Wi-Fi SSID and OCPP `centralSystem` / `url` fields are base64-encoded on
-  the wire.** Models decode them and surface the plain text via `ssid` /
-  `central_system` / `url`; the raw form is kept on the `*_raw` companion
-  attributes. `BleClient.wifi_connect()` base64-encodes the SSID on the way
-  out so callers pass plain text.
-- `ChargerSensorValuesResponse` now has units documented: voltages in
-  deciV (0.1V resolution), currents in deciA. Added convenience properties
-  `voltage_phase_{1,2,3}_volts` and `current_phase_{1,2,3}_amps` that scale
-  the raw int values.
-
-### Notes
-
-- The Phase 0 R0 (bonding-gate) question is **answered**: the charger
-  requires a bonded link before any GATT operation; the Version
-  characteristic read returns `BleakGATTProtocolError: Insufficient
-  Authentication` until pair completes. The Android app calls
-  `createBondInsecure()` but the LE pairing capabilities advertise
-  passkey-entry, so bonding requires a per-device PIN (printed in the
-  charger's documentation). Plain `BleClient` cannot auto-bond — the
-  caller's OS (Windows Settings → Bluetooth, BlueZ `bluetoothctl pair`,
-  HA `bluetooth` integration's flow, or the mobile app) must complete the
-  pairing first.
-- One charger reports `protocolVersion = 6` (BASELINE_4_0_0) from the
-  Version characteristic but advertises `0x03` in manufacturer data. The
-  advertised byte is **not** the IPC protocol version; trust the characteristic
-  read instead.
-
 ## [0.10.0] — 2026-05-13
 
 ### Added
 
 - Optional BLE subpackage (`aioratio.ble`) installed via `pip install aioratio[ble]`.
-  The cloud-only install path does NOT pull in `bleak`. Importing `aioratio`
-  remains lightweight; `aioratio.BleClient` is resolved lazily and raises
-  ``RuntimeError`` with an install hint if the extras are missing.
+  Cloud-only installs do NOT pull in `bleak`; `aioratio.BleClient` is resolved
+  lazily and raises `RuntimeError` with an install hint if the extras are missing.
 - `BleClient` covers every read command plus the user-level writes
   (`charge_control`, `set_user_settings`, `set_solar_settings`,
-  `set_time_settings`) and the Wi-Fi recovery flow (`wifi_scan`,
-  `wifi_connect`). Each command is gated against the charger's reported
-  Inspiro IPC protocol version (read on connect from the Version
-  characteristic); calls below the minimum raise
-  `RatioBleUnsupportedCommandError` before any wire write.
-- BLE request/response dataclasses live under `aioratio.ble.models`. JSON
-  keys are taken verbatim from the decompiled
-  `<Class>$$serializer.java` descriptors (plus
-  `SerializedNames.java` for the TimeSettings fields). The frozen
-  reference table lives at `tests/ble/_serializer_refs.py`.
+  `set_time_settings`) and the Wi-Fi recovery flow (`wifi_scan`, `wifi_connect`).
+  Each command is gated against the charger's reported Inspiro IPC protocol
+  version; calls below the minimum raise `RatioBleUnsupportedCommandError`
+  before any wire write.
+- BLE request/response dataclasses live under `aioratio.ble.models`. JSON keys
+  are taken verbatim from the decompiled `<Class>$$serializer.java` descriptors
+  (plus `SerializedNames.java` for the TimeSettings fields); the frozen
+  reference table is at `tests/ble/_serializer_refs.py`.
+- Get*Settings responses expose `SettableValue` envelopes
+  (`{value, isChangeAllowed, allowedValues?, lowerLimit?, upperLimit?}`); Set\*
+  updates still emit flat values — the wire is asymmetric.
+- `GetNetworkStatusResponse`, `GetOcppStatusResponse`,
+  `GetBackendStatusResponse` are fully modelled (`WifiInfo` / `EthernetInfo` /
+  `Ipv4Info` / `OcppCpms`), exposed via `get_network_status()`,
+  `get_ocpp_status()`, `get_backend_status()`.
+- Wi-Fi SSID and OCPP `centralSystem` / `url` fields are base64-encoded on the
+  wire; models decode and surface plain text on `ssid` / `central_system` /
+  `url` with `*_raw` companion attributes for the encoded form.
+  `BleClient.wifi_connect()` base64-encodes the SSID on the way out.
+- `ChargerSensorValuesResponse` voltages are deciV (0.1 V) and currents are
+  deciA; `voltage_phase_{1,2,3}_volts` / `current_phase_{1,2,3}_amps`
+  convenience properties scale them.
 - New exceptions: `RatioBleError`, `RatioBleConnectionError`,
   `RatioBleProtocolError`, `RatioBleNotBondedError`,
   `RatioBleUnsupportedCommandError`. All descend from `RatioError`.
 - `aioratio.ble.const` exposes the Inspiro IPC GATT UUIDs, advertisement
-  filters, and `BleProtocolVersions` numeric mapping confirmed against the
-  decompiled v3.9.1 app.
+  filters (manufacturer ID `0x0BFF` / 3071), and `BleProtocolVersions`.
 - `scripts/ble_smoke.py` walks the priority reads against a real charger
   (excluded from the wheel).
 
 ### Notes
 
-- The `[ble]` extras pin `bleak>=0.22,<4` to cover the bleak 3.x major
-  release that became the default after the original plan was authored.
-- Plan correction: the advert filter is **manufacturer ID `0x0BFF` (3071)**,
-  not `0x0AFF` (2815) as originally documented. The Phase 0 PoC saw
-  `0x0BFF` on every advert.
-- The bonding answer (R0 — can `bleak` auto-bond via JustWorks?) is still
-  open. The Phase 0 hardware run from the optiplex hit BlueZ
-  `ConnectionAttemptFailed` at -83 to -89 dBm with RPA rotation, so the
-  bonded vs unbonded read behaviour has not yet been observed on real
-  hardware. The library is structured to surface bonding failures as
-  `RatioBleConnectionError`. Full PoC notes live at
-  `research/ble-poc/OBSERVATIONS.md`.
+- Bonding is required: the charger returns
+  `BleakGATTProtocolError: Insufficient Authentication` on every GATT
+  operation until pair completes. Pairing uses a per-device PIN printed in
+  the charger documentation, so `BleClient` cannot auto-bond — the caller's
+  OS (Windows Bluetooth settings, BlueZ `bluetoothctl pair`, HA `bluetooth`
+  integration, or the mobile app) must complete pairing first.
+- `IpcTransactionResult` is lowercase `"success"` / `"failed"` on the wire
+  even though the decompiled descriptor implied title case;
+  `is_success()` is case-insensitive defensively.
+- One charger reports `protocolVersion = 6` (BASELINE_4_0_0) from the Version
+  characteristic but advertises `0x03` in manufacturer data — the advertised
+  byte is **not** the IPC protocol version; trust the characteristic read.
+- `[ble]` extras pin `bleak>=0.22,<4`.
+
 
 ## [0.9.1] — 2026-05-13
 
