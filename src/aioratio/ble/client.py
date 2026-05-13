@@ -78,10 +78,8 @@ class BleClient:
         if transport is not None:
             self._transport: BleTransport = transport
         else:
-            from bleak import BleakClient
-
             assert device is not None
-            self._transport = BleakBleTransport(BleakClient(device, timeout=connect_timeout))
+            self._transport = BleakBleTransport(device, connect_timeout=connect_timeout)
         self._disconnected_cb = disconnected_callback
         self._command_timeout = command_timeout
         self._registry = TransactionRegistry()
