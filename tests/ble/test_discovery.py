@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from dataclasses import dataclass
+from typing import Mapping
 
 from aioratio.ble.const import ADVERT_MANUFACTURER_ID
 from aioratio.ble.discovery import (
@@ -10,6 +11,14 @@ from aioratio.ble.discovery import (
     parse_advertisement,
     parse_service_info,
 )
+
+
+@dataclass
+class _FakeServiceInfo:
+    """Conforms to ``_ServiceInfoLike`` for tests without importing HA."""
+
+    name: str | None
+    manufacturer_data: Mapping[int, bytes]
 
 
 def test_returns_none_when_local_name_is_none() -> None:
@@ -51,7 +60,7 @@ def test_dataclass_is_hashable() -> None:
 
 
 def test_service_info_matches_parse_advertisement_on_happy_path() -> None:
-    info = SimpleNamespace(
+    info = _FakeServiceInfo(
         name="RATIO_ABC",
         manufacturer_data={ADVERT_MANUFACTURER_ID: b"\x03\xff"},
     )
@@ -63,10 +72,10 @@ def test_service_info_matches_parse_advertisement_on_happy_path() -> None:
 def test_service_info_returns_none_when_name_is_none() -> None:
     # HA fills `.name` with device.address as a last resort, but defensive
     # callers may still see None during edge-case advert frames.
-    info = SimpleNamespace(name=None, manufacturer_data={ADVERT_MANUFACTURER_ID: b"\x03"})
+    info = _FakeServiceInfo(name=None, manufacturer_data={ADVERT_MANUFACTURER_ID: b"\x03"})
     assert parse_service_info(info) is None
 
 
 def test_service_info_returns_none_when_manufacturer_data_empty() -> None:
-    info = SimpleNamespace(name="RATIO_ABC", manufacturer_data={})
+    info = _FakeServiceInfo(name="RATIO_ABC", manufacturer_data={})
     assert parse_service_info(info) is None

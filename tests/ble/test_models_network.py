@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Protocol
+
 import pytest
 
 from aioratio.ble.models import (
@@ -13,6 +15,10 @@ from aioratio.ble.models import (
 )
 
 from ._serializer_refs import SERIALIZER_KEYS
+
+
+class _FromDict(Protocol):
+    def from_dict(self, data: dict[str, Any]) -> Any: ...
 
 
 def _attr_path(obj: object, path: str) -> object:
@@ -134,7 +140,7 @@ def test_network_status_full_payload() -> None:
 )
 def test_network_status_keys_match_serializer(
     serializer_name: str,
-    model: object,
+    model: _FromDict,
     sample: dict[str, object],
     attribute_path: str,
     expected: object,

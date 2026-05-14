@@ -159,6 +159,7 @@ def test_time_settings_response_parses_wrapped_payload() -> None:
     assert parsed.time_zone_area_location is not None
     assert parsed.time_zone_area_location.value == "Europe/Amsterdam"
     assert parsed.time_zone_posix is not None
+    assert parsed.time_zone_posix.value is not None
     assert parsed.time_zone_posix.value.startswith("CET")
 
 

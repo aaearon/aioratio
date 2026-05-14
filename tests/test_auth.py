@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from typing import Any, cast
 
+import aiohttp
 import pytest
 
 from aioratio import auth as auth_mod
@@ -21,12 +22,12 @@ class FakeStore(TokenStore):
         self.bundle: TokenBundle | None = bundle
         self.saves: list[TokenBundle] = []
 
-    async def load(self) -> Any:  # type: ignore[override]
+    async def load(self) -> TokenBundle | None:
         return self.bundle
 
-    async def save(self, tokens: Any) -> None:  # type: ignore[override]
-        self.bundle = tokens
-        self.saves.append(tokens)
+    async def save(self, bundle: TokenBundle) -> None:
+        self.bundle = bundle
+        self.saves.append(bundle)
 
     async def clear(self) -> None:
         self.bundle = None
@@ -37,10 +38,10 @@ class FakeCognito:
 
     def __init__(self) -> None:
         # mapping target -> list of responses (consumed in order)
-        self.queues: dict[str, list[dict[str, Any]]] = {}
+        self.queues: dict[str, list[dict[str, Any] | Exception]] = {}
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    def queue(self, target: str, response: dict[str, Any]) -> None:
+    def queue(self, target: str, response: dict[str, Any] | Exception) -> None:
         self.queues.setdefault(target, []).append(response)
 
     async def __call__(self, target: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -89,10 +90,10 @@ def make_auth(store: FakeStore, fake: FakeCognito | None = None) -> CognitoSrpAu
         email="user@example.com",
         password="hunter2",
         token_store=store,
-        session=None,  # type: ignore[arg-type]
+        session=None,
     )
     if fake is not None:
-        obj._cognito_call = fake  # type: ignore[assignment]
+        obj._cognito_call = cast(Any, fake)
     return obj
 
 
@@ -247,6 +248,7 @@ async def test_refresh_token_rotation_persisted() -> None:
     new = await auth.refresh(bundle)
     assert new.refresh_token == "NEWREFRESH"
     assert new.access_token == "A2"
+    assert store.bundle is not None
     assert store.bundle.refresh_token == "NEWREFRESH"
     init = fake.initiate_calls()[0]
     assert init["AuthFlow"] == "REFRESH_TOKEN_AUTH"
@@ -375,7 +377,7 @@ async def test_cognito_error_mapping_NotAuthorized_to_RatioAuthError() -> None:
         email="u",
         password="p",
         token_store=FakeStore(),
-        session=None,  # type: ignore[arg-type]
+        session=None,
     )
 
     class FakeResp:
@@ -394,7 +396,7 @@ async def test_cognito_error_mapping_NotAuthorized_to_RatioAuthError() -> None:
         def post(self, url: str, headers: Any = None, json: Any = None, **kwargs: Any) -> FakeResp:
             return FakeResp()
 
-    auth._session = FakeSession()  # type: ignore[assignment]
+    auth._session = cast(aiohttp.ClientSession, FakeSession())
     with pytest.raises(RatioAuthError) as ei:
         await auth._cognito_call("InitiateAuth", {})
     assert "NotAuthorizedException" in str(ei.value)
@@ -454,7 +456,7 @@ async def test_timeout_propagation() -> None:
         email="u@test.com",
         password="pw",
         token_store=store,
-        session=None,  # type: ignore[arg-type]
+        session=None,
         timeout=15.0,
     )
     assert auth._timeout == 15.0
@@ -466,7 +468,7 @@ async def test_timeout_default() -> None:
         email="u@test.com",
         password="pw",
         token_store=store,
-        session=None,  # type: ignore[arg-type]
+        session=None,
     )
     assert auth._timeout == 30.0
 
@@ -484,7 +486,7 @@ async def test_invalidate_access_token() -> None:
         email="u@test.com",
         password="pw",
         token_store=store,
-        session=None,  # type: ignore[arg-type]
+        session=None,
     )
     await auth.invalidate_access_token()
     reloaded = await store.load()
@@ -499,7 +501,7 @@ async def test_invalidate_access_token_no_bundle() -> None:
         email="u@test.com",
         password="pw",
         token_store=store,
-        session=None,  # type: ignore[arg-type]
+        session=None,
     )
     await auth.invalidate_access_token()  # should not raise
     assert await store.load() is None

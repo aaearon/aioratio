@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from aioratio.ble.models import ChargerStatusResponse, ChargeStatusIndicators
 
 from ._serializer_refs import SERIALIZER_KEYS
@@ -52,7 +54,7 @@ def test_charger_status_response_missing_indicators_block() -> None:
 def test_charge_status_indicators_full_keys_match_serializer() -> None:
     """Every key Python parses must appear in the APK serializer descriptor."""
     raw_keys = set(SERIALIZER_KEYS["ChargeStatusIndicators"])
-    sample = {k: None for k in raw_keys}
+    sample: dict[str, Any] = {k: None for k in raw_keys}
     sample["actualChargingPower"] = 1
     sample["errors"] = []
     indicators = ChargeStatusIndicators.from_dict(sample)

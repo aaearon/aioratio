@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import time
+from typing import Any
 
 import pytest
 
@@ -20,7 +21,7 @@ pytestmark = pytest.mark.asyncio
 
 
 def _full_bundle(**overrides: object) -> TokenBundle:
-    base = dict(
+    base: dict[str, Any] = dict(
         access_token="acc",
         id_token="idt",
         refresh_token="rft",
@@ -31,7 +32,7 @@ def _full_bundle(**overrides: object) -> TokenBundle:
         device_password="dpw",
     )
     base.update(overrides)
-    return TokenBundle(**base)  # type: ignore[arg-type]
+    return TokenBundle(**base)
 
 
 async def test_token_bundle_roundtrip() -> None:
