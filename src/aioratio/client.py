@@ -351,7 +351,9 @@ class RatioClient:
             return value
         to_dict = getattr(value, "to_dict", None)
         if callable(to_dict):
-            return to_dict()
+            result = to_dict()
+            assert isinstance(result, dict)
+            return result
         if dataclasses.is_dataclass(value) and not isinstance(value, type):
             return _to_camel_keys(dataclasses.asdict(value))
         raise TypeError(f"cannot serialise {type(value).__name__} to JSON body")

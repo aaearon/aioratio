@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Internal: tighten pyright surface, remove lazy `# type: ignore` suppressions.
+
 ## [0.10.1] — 2026-05-13
 
 ### Changed

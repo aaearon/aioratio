@@ -56,7 +56,7 @@ class CognitoSrpAuth:
         email: str | None,
         password: str | None,
         token_store: TokenStore,
-        session: aiohttp.ClientSession,
+        session: aiohttp.ClientSession | None,
         client_id: str = COGNITO_CLIENT_ID,
         user_pool_id: str = COGNITO_USER_POOL_ID,
         region: str = COGNITO_REGION,
@@ -338,6 +338,8 @@ class CognitoSrpAuth:
         )
 
     async def _cognito_call(self, target: str, body: dict[str, Any]) -> dict[str, Any]:
+        if self._session is None:
+            raise RatioConnectionError("no aiohttp session configured")
         url = _cognito_url(self._region)
         headers = {
             "Content-Type": "application/x-amz-json-1.1",

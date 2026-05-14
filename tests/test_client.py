@@ -6,12 +6,13 @@ import base64
 import json
 import time
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import aiohttp
 import pytest
 from aiohttp import web
 
+from aioratio.auth import CognitoSrpAuth
 from aioratio.client import RatioClient
 from aioratio.exceptions import (
     RatioApiError,
@@ -82,7 +83,7 @@ async def client_with_fake_transport():
     session = aiohttp.ClientSession()
     client = RatioClient(token_store=store, session=session)
     fake = FakeTransport()
-    client._transport = fake  # type: ignore[assignment]
+    client._transport = cast(Any, fake)
     try:
         yield client, fake
     finally:
@@ -105,7 +106,8 @@ async def test_user_id_from_id_token():
         async def _fake_get_access_token() -> str:
             return bundle.access_token
 
-        client._auth.get_access_token = _fake_get_access_token  # type: ignore[assignment]
+        assert client._auth is not None
+        client._auth.get_access_token = cast(Any, _fake_get_access_token)
         assert await client.user_id() == "abc-123"
 
 
@@ -434,11 +436,16 @@ async def test_supplied_session_not_closed_on_exit():
 # ---------------------------------------------------------------------------
 
 
-class _FakeAuth:
+class _FakeAuth(CognitoSrpAuth):
     """Drop-in stand-in for CognitoSrpAuth in transport-level tests."""
 
     def __init__(self, store, token: str = "TOKEN0") -> None:
-        self._token_store = store
+        super().__init__(
+            email="fake@example.com",
+            password="fake",
+            token_store=store,
+            session=None,
+        )
         self.token = token
         self.calls = 0
 
@@ -477,7 +484,7 @@ async def _make_http_client(base_url: str, auth) -> tuple[RatioClient, aiohttp.C
     await store.save(_make_bundle())
     client = RatioClient(token_store=store, session=session, base_url=base_url)
     # Replace the real auth with our fake.
-    client._auth = auth  # type: ignore[assignment]
+    client._auth = auth
     from aioratio._transport import _CloudTransport
 
     client._transport = _CloudTransport(auth=auth, session=session, base_url=base_url)

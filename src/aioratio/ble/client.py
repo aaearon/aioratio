@@ -126,10 +126,14 @@ class BleClient:
         """Convenience constructor — discover the device then wrap it."""
         from bleak import BleakScanner
 
-        scan_kwargs: dict[str, object] = {"timeout": connect_timeout}
         if adapter is not None:
-            scan_kwargs["adapter"] = adapter
-        device = await BleakScanner.find_device_by_address(address, **scan_kwargs)  # type: ignore[arg-type]
+            device = await BleakScanner.find_device_by_address(
+                address, timeout=connect_timeout, adapter=adapter
+            )
+        else:
+            device = await BleakScanner.find_device_by_address(
+                address, timeout=connect_timeout
+            )
         if device is None:
             raise RatioBleConnectionError(
                 f"No advert seen for {address} within {connect_timeout:.0f}s"
