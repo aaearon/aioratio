@@ -48,7 +48,7 @@ from .models import (
 )
 from .protocol import require_version
 from .transactions import TransactionRegistry, new_transaction_id
-from .transport import BleakBleTransport, BleTransport
+from .transport import BleakBleTransport, BleTransport, _looks_like_bond_required
 
 if TYPE_CHECKING:  # pragma: no cover
     from bleak.backends.device import BLEDevice
@@ -346,26 +346,6 @@ class BleClient:
                 )
             )
             self._rx_buffer.clear()
-
-
-# Substrings that BlueZ / bleak surface when a peer rejects GATT access for
-# lack of an SMP bond. Matched against ``str(exc).lower()`` because the
-# concrete exception class varies between bleak backends (BleakError,
-# BleakDBusError, OSError, BleakGATTProtocolError ...).
-_BOND_REQUIRED_MARKERS = (
-    "insufficient authentication",
-    "insufficient encryption",
-    "insufficient encryption key size",
-    "att error: 0x05",  # insufficient authentication
-    "att error: 0x0f",  # insufficient encryption
-    "att error: 0x0c",  # insufficient encryption key size
-    "not paired",
-)
-
-
-def _looks_like_bond_required(exc: BaseException) -> bool:
-    msg = str(exc).lower()
-    return any(marker in msg for marker in _BOND_REQUIRED_MARKERS)
 
 
 __all__ = ["BleClient"]

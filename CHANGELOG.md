@@ -2,7 +2,31 @@
 
 ## [Unreleased]
 
-- Internal: tighten pyright surface, remove lazy `# type: ignore` suppressions.
+## [0.10.2] — 2026-05-15
+
+### Fixed
+
+- `BleakBleTransport` now pairs and retries once on a bond-required GATT
+  failure, on the *same* `BleakClient` connection. ESPHome `bluetooth_proxy`
+  resets its per-connection `is_paired_` flag on every disconnect, so pairing
+  on a separate connection (the previous home-assistant-ratio approach)
+  succeeded but did not propagate to the next read — the proxy still issued
+  GATT ops with `ESP_GATT_AUTH_REQ_NONE` and the charger rejected them with
+  `status=15` (insufficient encryption). Wrapping each GATT op
+  (`read_version`, `write_rx`, `start_notify`) in a same-connection
+  pair-and-retry triggers `bluetooth_device_pair` on the live connection,
+  which restarts encryption from the proxy's stored LTK. Also correct for
+  BlueZ adapters: the first-ever connection bonds, subsequent connections
+  auto-encrypt from the kernel's stored LTK and the retry never fires.
+
+### Changed
+
+- `_looks_like_bond_required` and `_BOND_REQUIRED_MARKERS` moved from
+  `aioratio.ble.client` to `aioratio.ble.transport` (lower in the dependency
+  stack). Two new markers (`error=5 ` / `error=15 `) added to catch the
+  `bleak_esphome` GATT-error wording verbatim.
+- Internal: tighten pyright surface, remove lazy `# type: ignore` suppressions
+  (carried over from the unreleased changes since 0.10.1).
 
 ## [0.10.1] — 2026-05-13
 
