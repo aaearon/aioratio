@@ -60,6 +60,9 @@ def _looks_like_bond_required(exc: BaseException) -> bool:
     return any(marker in msg for marker in _BOND_REQUIRED_MARKERS)
 
 
+DisconnectedCallback = Callable[[], None]
+
+
 @runtime_checkable
 class BleTransport(Protocol):
     """Minimal GATT surface ``BleClient`` depends on."""
@@ -69,6 +72,7 @@ class BleTransport(Protocol):
     async def read_version(self) -> int: ...
     async def write_rx(self, payload: bytes) -> None: ...
     def set_tx_callback(self, cb: TxCallback) -> None: ...
+    def set_disconnected_callback(self, cb: DisconnectedCallback | None) -> None: ...
 
 
 class BleakBleTransport:
@@ -81,6 +85,7 @@ class BleakBleTransport:
         name: str = "ratio-charger",
         connect_timeout: float = 20.0,
         max_attempts: int = 3,
+        disconnected_callback: DisconnectedCallback | None = None,
     ) -> None:
         self._device = device
         self._name = name
@@ -88,6 +93,7 @@ class BleakBleTransport:
         self._max_attempts = max_attempts
         self._client: BleakClient | None = None
         self._tx_cb: TxCallback | None = None
+        self._disconnected_cb: DisconnectedCallback | None = disconnected_callback
         self._notify_active = False
 
     async def connect(self) -> None:
@@ -103,6 +109,7 @@ class BleakBleTransport:
                 self._name,
                 max_attempts=self._max_attempts,
                 use_services_cache=True,
+                disconnected_callback=self._on_bleak_disconnect,
             )
         if not self._notify_active:
             assert self._client is not None
@@ -166,15 +173,29 @@ class BleakBleTransport:
     def set_tx_callback(self, cb: TxCallback) -> None:
         self._tx_cb = cb
 
+    def set_disconnected_callback(self, cb: DisconnectedCallback | None) -> None:
+        self._disconnected_cb = cb
+
     def _on_notify(self, _sender: object, data: bytearray) -> None:
         cb = self._tx_cb
         if cb is not None:
             cb(bytes(data))
 
+    def _on_bleak_disconnect(self, _client: BleakClient) -> None:
+        # Strip the BleakClient arg — our public callback shape is no-arg so it
+        # matches the protocol regardless of underlying backend.
+        cb = self._disconnected_cb
+        if cb is not None:
+            try:
+                cb()
+            except Exception:  # noqa: BLE001 — user callback
+                pass
+
 
 __all__ = [
     "BleTransport",
     "BleakBleTransport",
+    "DisconnectedCallback",
     "TxCallback",
     "_looks_like_bond_required",
 ]

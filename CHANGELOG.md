@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-05-15
+
+### Added
+
+- `BleClient.poll_sensor_values(period=3.0)` — async iterator that yields
+  `ChargerSensorValuesResponse` at a configurable cadence over a single held
+  BLE connection. Mirrors the official phone app's poll loop (decompiled
+  `ChargerInformationRepository.java:236` → `POLL_TIME.DEFAULT_BLE = 3.seconds`).
+  Lets HA-side consumers drive real-time voltage/current updates without
+  paying per-poll connect/pair/disconnect overhead.
+- `BleClient.disconnect_future` — per-connection `asyncio.Future` resolved
+  exactly once when the link drops (whether by explicit `disconnect()` or by
+  an underlying transport disconnect signal). A fresh Future is installed on
+  each `connect()`, so previously-awaited Futures stay resolved across
+  reconnect generations.
+- `BleakBleTransport` now plumbs `disconnected_callback` through to
+  `bleak_retry_connector.establish_connection`, so remote disconnects
+  (proxy reset, peer-initiated close, RF blip) actually surface — previously
+  the signal only fired on explicit `disconnect()`.
+- New `set_disconnected_callback` on the `BleTransport` protocol so the
+  client can subscribe to link-loss events regardless of which transport
+  implementation is in use.
+
+### Changed
+
+- `BleClient._exchange` widens `_send_lock` to span both the request write
+  AND the response wait (transaction mutex). Matches the decompiled APK's
+  `BluetoothService.java:931-963` round-trip lock. Concurrent callers — e.g.
+  a sensor poll loop racing a Wi-Fi command — are now serialized end-to-end
+  so writes and responses cannot interleave against the same charger. All
+  existing sequential callers are unaffected; this is a strict superset of
+  the previous safety.
+
 ## [0.10.2] — 2026-05-15
 
 ### Fixed

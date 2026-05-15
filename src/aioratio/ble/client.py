@@ -17,7 +17,7 @@ works; ``from_address`` is the convenience constructor for scripts.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
 from ..exceptions import (
@@ -87,6 +87,14 @@ class BleClient:
         self._protocol_version: int | None = None
         self._connected = False
         self._send_lock = asyncio.Lock()
+        # Per-connection: a fresh Future is installed in ``connect()`` and
+        # resolved exactly once when the link drops (either explicit
+        # ``disconnect()`` or a transport-side disconnect callback). Reusing
+        # an Event across reconnect generations is race-prone — awaiters that
+        # didn't see the brief ``set`` between ``clear`` calls would miss the
+        # event; a per-connection Future cannot be missed.
+        self._disconnect_future: asyncio.Future[None] | None = None
+        self._transport.set_disconnected_callback(self._on_transport_disconnect)
 
     # ------------------------------------------------------------------ ctor
 
@@ -150,6 +158,7 @@ class BleClient:
         if self._connected:
             return
         self._transport.set_tx_callback(self._on_tx)
+        self._disconnect_future = asyncio.get_running_loop().create_future()
         try:
             await self._transport.connect()
         except Exception as exc:
@@ -180,12 +189,39 @@ class BleClient:
         try:
             await self._transport.disconnect()
         finally:
+            self._resolve_disconnect_future()
             cb = self._disconnected_cb
             if cb is not None:
                 try:
                     cb()
                 except Exception:  # noqa: BLE001 — user callback
                     pass
+
+    def _resolve_disconnect_future(self) -> None:
+        fut = self._disconnect_future
+        if fut is not None and not fut.done():
+            fut.set_result(None)
+
+    def _on_transport_disconnect(self) -> None:
+        """Hook for the underlying transport's link-loss signal.
+
+        Flips ``_connected`` so any next ``_exchange`` raises rather than
+        hanging, resolves the per-connection ``disconnect_future`` so the
+        session loop wakes immediately, and fires the user-supplied
+        ``disconnected_callback`` if one was provided. Runs synchronously on
+        the BT event-loop callback path — must not block.
+        """
+        if not self._connected:
+            return
+        self._connected = False
+        self._registry.fail_all(RatioBleConnectionError("transport disconnected"))
+        self._resolve_disconnect_future()
+        cb = self._disconnected_cb
+        if cb is not None:
+            try:
+                cb()
+            except Exception:  # noqa: BLE001 — user callback
+                pass
 
     async def __aenter__(self) -> BleClient:
         await self.connect()
@@ -205,6 +241,18 @@ class BleClient:
     def is_connected(self) -> bool:
         return self._connected
 
+    @property
+    def disconnect_future(self) -> asyncio.Future[None] | None:
+        """Future that resolves the next time this connection drops.
+
+        Returns ``None`` until :meth:`connect` has been called. After connect,
+        a fresh Future is installed for each connection generation, so any
+        previously-awaited Future from a prior connection stays resolved.
+        Awaiting this lets the caller treat a remote disconnect as a wake
+        signal without polling :attr:`is_connected`.
+        """
+        return self._disconnect_future
+
     # ------------------------------------------------------------- public API
 
     async def get_product_information(self) -> ProductInformationResponse:
@@ -218,6 +266,28 @@ class BleClient:
     async def get_charger_sensor_values(self) -> ChargerSensorValuesResponse:
         body = await self._exchange("GetChargerSensorValuesRequest", {})
         return ChargerSensorValuesResponse.from_dict(body)
+
+    async def poll_sensor_values(
+        self, period: float = 3.0
+    ) -> AsyncIterator[ChargerSensorValuesResponse]:
+        """Yield ``ChargerSensorValuesResponse`` at the given cadence.
+
+        Mirrors the official Ratio app's behaviour (decompiled APK
+        ``ChargerInformationRepository.java:236`` polls at ``POLL_TIME.DEFAULT_BLE``
+        = 3 s) over a held BLE connection. The iterator does not own the
+        connection — keep the ``BleClient`` open around it.
+
+        Each iteration acquires and releases ``_send_lock`` so other commands
+        (e.g. Wi-Fi reconfiguration) can interleave during the inter-poll
+        sleep without starving the poll.
+
+        If the link drops mid-loop, the next ``get_charger_sensor_values``
+        raises :class:`RatioBleConnectionError` and the iterator exits with
+        that exception — callers can ``except`` and reconnect.
+        """
+        while True:
+            yield await self.get_charger_sensor_values()
+            await asyncio.sleep(period)
 
     async def charge_control(self, control: ChargeControl) -> ChargeControlResponse:
         body = await self._exchange("ChargeControlRequest", {"control": control.value})
@@ -314,6 +384,11 @@ class BleClient:
         fut = self._registry.register(txn)
         frame = encode_request(classname, body)
 
+        # Lock spans the full transaction (write + wait-for-response). The
+        # decompiled APK holds an equivalent ``BluetoothService.java:931-963``
+        # mutex across the round-trip; without that, two concurrent callers
+        # (e.g. a sensor poll loop racing a Wi-Fi command) can interleave
+        # writes and responses against the same charger.
         async with self._send_lock:
             try:
                 await self._transport.write_rx(frame)
@@ -321,13 +396,20 @@ class BleClient:
                 self._registry.cancel(txn)
                 raise RatioBleConnectionError(f"BLE write failed: {exc}") from exc
 
-        try:
-            _, response_body = await asyncio.wait_for(fut, timeout=self._command_timeout)
-        except TimeoutError:
-            self._registry.cancel(txn)
-            raise RatioBleConnectionError(
-                f"timeout waiting for {classname} response (txn={txn})"
-            ) from None
+            # Use ``asyncio.timeout`` over ``wait_for``: when the response Future
+            # is already resolved (FakeBleTransport delivers via ``call_soon``,
+            # real transports under fast proxies are similarly fast), ``wait_for``
+            # absorbs any pending ``Task.cancel()`` on its way out — leaving the
+            # caller looking cancelled-but-not-cancelled. ``asyncio.timeout``
+            # propagates cancellation cleanly through resolved futures.
+            try:
+                async with asyncio.timeout(self._command_timeout):
+                    _, response_body = await fut
+            except TimeoutError:
+                self._registry.cancel(txn)
+                raise RatioBleConnectionError(
+                    f"timeout waiting for {classname} response (txn={txn})"
+                ) from None
         return response_body
 
     def _on_tx(self, data: bytes) -> None:
