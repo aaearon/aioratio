@@ -140,3 +140,13 @@ def test_looks_like_bond_required_recognises_esphome_gatt_error_15() -> None:
     """The marker list must catch the exact wording bleak_esphome surfaces."""
     exc = _bond_required_exc()
     assert _looks_like_bond_required(exc)
+
+
+def test_looks_like_bond_required_recognises_esphome_gatt_error_5() -> None:
+    """``error=5 `` (Insufficient Authentication) is the other bleak_esphome
+    GATT-error wording the marker list claims to cover."""
+    exc = BleakError(
+        "Bluetooth GATT Error address=79:75:75:A4:A0:45 handle=17 error=5 "
+        "description=Insufficient authentication"
+    )
+    assert _looks_like_bond_required(exc)
