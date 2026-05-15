@@ -13,7 +13,7 @@ from collections.abc import Callable
 from typing import Any
 
 from aioratio.ble.codec import encode_request
-from aioratio.ble.transport import TxCallback
+from aioratio.ble.transport import DisconnectedCallback, TxCallback
 
 ResponseFactory = Callable[[dict[str, Any]], tuple[str, dict[str, Any]]]
 
@@ -27,6 +27,7 @@ class FakeBleTransport:
         self.disconnected_count = 0
         self.writes: list[bytes] = []
         self._tx_cb: TxCallback | None = None
+        self._disconnected_cb: DisconnectedCallback | None = None
         self._responders: dict[str, ResponseFactory] = {}
 
     # ------ test helpers ------
@@ -72,6 +73,16 @@ class FakeBleTransport:
 
     def set_tx_callback(self, cb: TxCallback) -> None:
         self._tx_cb = cb
+
+    def set_disconnected_callback(self, cb: DisconnectedCallback | None) -> None:
+        self._disconnected_cb = cb
+
+    def fire_remote_disconnect(self) -> None:
+        """Test helper: simulate the underlying link dropping unexpectedly."""
+        self.connected = False
+        cb = self._disconnected_cb
+        if cb is not None:
+            cb()
 
     # ------ internal ------
 

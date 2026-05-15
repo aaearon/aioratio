@@ -379,6 +379,209 @@ async def test_async_context_manager_disconnects_on_exception(
     assert transport.disconnected_count == 1
 
 
+async def test_poll_sensor_values_yields_at_cadence(transport: FakeBleTransport) -> None:
+    """``poll_sensor_values`` yields one response per ``period``-spaced tick."""
+    transport.register_static(
+        "GetChargerSensorValuesRequest",
+        "GetChargerSensorValuesResponse",
+        {
+            "result": "success",
+            "actualMainsVoltagePhase1": 2300,
+            "actualMainsVoltagePhase2": 2310,
+            "actualMainsVoltagePhase3": 2290,
+            "actualSensorBoxCurrentPhase1": 100,
+            "actualSensorBoxCurrentPhase2": None,
+            "actualSensorBoxCurrentPhase3": None,
+        },
+    )
+    client = await _connected_client(transport)
+    try:
+        seen = 0
+        # ``period=0`` keeps the test fast; cadence is what's exercised below.
+        async for resp in client.poll_sensor_values(period=0):
+            assert resp.actual_mains_voltage_phase_1 == 2300
+            seen += 1
+            if seen >= 3:
+                break
+        assert seen == 3
+        # Each poll wrote exactly one ``GetChargerSensorValuesRequest`` frame.
+        assert len(transport.writes) == 3
+    finally:
+        await client.disconnect()
+
+
+async def test_poll_sensor_values_cancellation_releases_lock(
+    transport: FakeBleTransport,
+) -> None:
+    """Cancelling the poll loop must leave ``_send_lock`` in a fresh state."""
+    transport.register_static(
+        "GetChargerSensorValuesRequest",
+        "GetChargerSensorValuesResponse",
+        {
+            "result": "success",
+            "actualMainsVoltagePhase1": 2300,
+            "actualMainsVoltagePhase2": 2300,
+            "actualMainsVoltagePhase3": 2300,
+            "actualSensorBoxCurrentPhase1": None,
+            "actualSensorBoxCurrentPhase2": None,
+            "actualSensorBoxCurrentPhase3": None,
+        },
+    )
+    client = await _connected_client(transport)
+    try:
+
+        async def runner() -> None:
+            async for _ in client.poll_sensor_values(period=10.0):
+                pass
+
+        task = asyncio.create_task(runner())
+        # Let one iteration complete (which leaves the loop in ``sleep``).
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        # Lock must be released — a subsequent command should complete normally.
+        # ``get_charger_sensor_values`` will acquire the lock; if it was leaked
+        # the call would deadlock past the per-command timeout.
+        await asyncio.wait_for(client.get_charger_sensor_values(), timeout=1.0)
+    finally:
+        await client.disconnect()
+
+
+async def test_poll_sensor_values_exits_on_remote_disconnect(
+    transport: FakeBleTransport,
+) -> None:
+    """``FakeBleTransport.fire_remote_disconnect`` exits the poll iterator."""
+    transport.register_static(
+        "GetChargerSensorValuesRequest",
+        "GetChargerSensorValuesResponse",
+        {
+            "result": "success",
+            "actualMainsVoltagePhase1": 2300,
+            "actualMainsVoltagePhase2": 2300,
+            "actualMainsVoltagePhase3": 2300,
+            "actualSensorBoxCurrentPhase1": None,
+            "actualSensorBoxCurrentPhase2": None,
+            "actualSensorBoxCurrentPhase3": None,
+        },
+    )
+    client = await _connected_client(transport)
+    disconnect_future = client.disconnect_future
+    assert disconnect_future is not None
+
+    async def runner() -> int:
+        count = 0
+        async for _ in client.poll_sensor_values(period=0):
+            count += 1
+            if count == 1:
+                transport.fire_remote_disconnect()
+        return count
+
+    with pytest.raises(RatioBleConnectionError):
+        await asyncio.wait_for(runner(), timeout=1.0)
+
+    assert client.is_connected is False
+    assert disconnect_future.done()
+
+
+async def test_disconnect_future_is_per_connection(
+    transport: FakeBleTransport,
+) -> None:
+    """A new ``connect()`` after disconnect yields a fresh ``disconnect_future``."""
+    client = BleClient(transport=transport)
+    await client.connect()
+    first = client.disconnect_future
+    assert first is not None
+    await client.disconnect()
+    assert first.done()
+
+    await client.connect()
+    second = client.disconnect_future
+    assert second is not None
+    assert second is not first
+    assert not second.done()
+    await client.disconnect()
+    assert second.done()
+
+
+async def test_transaction_mutex_serializes_concurrent_exchanges() -> None:
+    """Two concurrent commands must complete write-A → resp-A → write-B → resp-B.
+
+    Without a transaction-spanning lock B's write would slip in before A's
+    response arrived (write-A → write-B → resp-B → resp-A), risking
+    cross-contaminated transactions.
+    """
+    from aioratio.ble.codec import encode_request as _encode_request
+
+    order: list[str] = []
+    status_txn: dict[str, str] = {}
+
+    class _GatedTransport(FakeBleTransport):
+        async def write_rx(self, payload: bytes) -> None:
+            self.writes.append(payload)
+            text = payload[:-1].decode("utf-8")
+            brace = text.find("{")
+            classname = text[:brace]
+            body = json.loads(text[brace:])
+            if classname == "ChargerStatusRequest":
+                order.append("write-status")
+                status_txn["txn"] = body["transaction"]
+                # No delivery yet — the test releases ``deliver_a`` once it
+                # has verified B is blocked behind the lock.
+                return
+            if classname == "WifiScanRequest":
+                order.append("write-scan")
+                order.append("resp-scan")
+                cb = self._tx_cb
+                assert cb is not None
+                cb(
+                    _encode_request(
+                        "WifiScanResponse",
+                        {
+                            "transaction": body["transaction"],
+                            "result": "success",
+                            "numberOfFoundNetworks": 0,
+                        },
+                    )
+                )
+
+    gated = _GatedTransport(protocol_version=6)
+    client = BleClient(transport=gated)
+    await client.connect()
+    try:
+        task_a = asyncio.create_task(client.get_charger_status())
+        task_b = asyncio.create_task(client.wifi_scan())
+        # Let A grab the lock, write, and park awaiting its response. B
+        # should be parked at the lock acquire.
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert order == ["write-status"], order
+
+        # Deliver A's response, which releases the lock and lets B run.
+        cb = gated._tx_cb
+        assert cb is not None
+        cb(
+            _encode_request(
+                "ChargerStatusResponse",
+                {
+                    "transaction": status_txn["txn"],
+                    "result": "success",
+                    "cloudConnectionState": "Connected",
+                    "isChargeStartAllowed": True,
+                    "isChargeStopAllowed": False,
+                    "indicators": None,
+                },
+            )
+        )
+        order.append("resp-status")
+
+        await asyncio.gather(task_a, task_b)
+        assert order == ["write-status", "resp-status", "write-scan", "resp-scan"]
+    finally:
+        await client.disconnect()
+
+
 async def test_from_service_info_constructs_with_device_from_info() -> None:
     """Anything carrying a ``BLEDevice`` on ``.device`` works.
 
