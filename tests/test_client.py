@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -259,7 +260,10 @@ async def test_set_user_settings_put_body_dict(client_with_fake_transport):
 async def test_set_user_settings_put_body_model(client_with_fake_transport):
     client, fake = client_with_fake_transport
     fake.queue(None)
-    settings = UserSettings.from_dict({"chargingMode": {"value": "FAST"}})
+    # "Smart" is a real ChargingMode value (Basic/Smart/SmartSolar/PureSolar).
+    settings = UserSettings.from_dict(
+        {"chargingMode": {"value": "Smart", "allowedValues": ["Basic", "Smart"]}}
+    )
     fake.calls.clear()
     fake.queue(None)
     await client.set_user_settings("S1", settings)
@@ -270,10 +274,10 @@ async def test_set_user_settings_put_body_model(client_with_fake_transport):
     inner = body["userSettings"]
     assert "chargingMode" in inner
     assert "charging_mode" not in inner
-    assert inner["chargingMode"]["value"] == "FAST"
-    # Read-only fields (allowedValues, lower, upper) must not appear in PUT body
-    assert "allowedValues" not in inner["chargingMode"]
-    assert "allowed_values" not in inner["chargingMode"]
+    # SetUserSettings types chargingMode as a nullable String, not a value object.
+    assert inner["chargingMode"] == "Smart"
+    # Read-only metadata (allowedValues, lower, upper) must not appear in a PUT body
+    assert inner == {"chargingMode": "Smart"}
 
 
 async def test_set_charge_schedule_camel_case_keys(client_with_fake_transport):
@@ -1026,3 +1030,20 @@ async def test_set_user_settings_put_body_never_carries_read_only_metadata(
         "maximumChargingCurrent",
         "chargingMode",
     }
+
+
+async def test_set_user_settings_accepts_sparse_update_model(client_with_fake_transport):
+    """UserSettingsUpdate expresses "change only this key" — the app's shape."""
+    from aioratio.models import UserSettingsUpdate
+
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    await client.set_user_settings("S1", UserSettingsUpdate(maximum_charging_current=16))
+
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["params"] == {"id": "user"}
+    body = call["json"]
+    assert set(body) == {"transactionId", "userSettings"}
+    assert re.fullmatch(r"[0-9a-f]{16}", body["transactionId"])
+    assert body["userSettings"] == {"maximumChargingCurrent": 16}

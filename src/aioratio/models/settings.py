@@ -37,6 +37,17 @@ def _parse_hhmm(value: str, field_name: str) -> tuple[int, int]:
     return int(h), int(m)
 
 
+def _integer_payload_value(field_name: str, value: float) -> int:
+    """Coerce ``value`` to ``int`` for a serializer field typed ``Int?``.
+
+    The cloud PUT DTOs type every current/delay field as a nullable Kotlin
+    ``Int``, so a fractional value can never be represented on the wire.
+    """
+    if not float(value).is_integer():
+        raise ValueError(f"{field_name} must be an integer-valued number, got {value!r}")
+    return int(value)
+
+
 @dataclass(slots=True)
 class UpperLowerLimitSetting:
     """Numeric setting with optional bounds.
@@ -64,7 +75,10 @@ class UpperLowerLimitSetting:
         if self.value is not None:
             raw_value = self.raw.get("value")
             if type(raw_value) is int:
-                if not self.value.is_integer():
+                # ``int.is_integer()`` only exists from Python 3.12; this package
+                # supports 3.11, and ``value`` may legitimately be an ``int``
+                # (e.g. ``dataclasses.replace(setting, value=16)``).
+                if not float(self.value).is_integer():
                     raise ValueError(
                         "UpperLowerLimitSetting.value must be integral when the "
                         f"original raw value was an int; got {self.value!r}"
@@ -143,23 +157,71 @@ class UserSettings:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Emit the PUT shape: flat nullable strings and integers.
+
+        The GET response wraps every field in a value object
+        (``{"value": ..., "isChangeAllowed": ..., "allowedValues": [...]}`` or
+        ``{"value": N, "lowerLimit": N, "upperLimit": N, "isChangeAllowed": ...}``),
+        but ``SetUserSettings$$serializer.java`` declares five optional fields
+        typed ``String?``, ``String?``, ``Int?``, ``Int?``, ``String?``. Echoing
+        the GET wrappers back makes the API reject the whole request with
+        ``Changing setting "cableSettings" ... is out of range``.
+
+        Prefer :class:`UserSettingsUpdate` for writes — it can express "leave
+        this field alone", which a GET model populated by the cloud cannot.
+        """
         out: dict[str, Any] = {}
         if self.cable_settings is not None and self.cable_settings.value is not None:
-            out["cableSettings"] = {"value": self.cable_settings.value}
+            out["cableSettings"] = self.cable_settings.value
         if self.charging_mode is not None and self.charging_mode.value is not None:
-            out["chargingMode"] = {"value": self.charging_mode.value}
+            out["chargingMode"] = self.charging_mode.value
         if (
             self.maximum_charging_current is not None
             and self.maximum_charging_current.value is not None
         ):
-            out["maximumChargingCurrent"] = self.maximum_charging_current.to_dict()
+            out["maximumChargingCurrent"] = _integer_payload_value(
+                "maximumChargingCurrent", self.maximum_charging_current.value
+            )
         if (
             self.minimum_charging_current is not None
             and self.minimum_charging_current.value is not None
         ):
-            out["minimumChargingCurrent"] = self.minimum_charging_current.to_dict()
+            out["minimumChargingCurrent"] = _integer_payload_value(
+                "minimumChargingCurrent", self.minimum_charging_current.value
+            )
         if self.start_mode is not None and self.start_mode.value is not None:
-            out["startMode"] = {"value": self.start_mode.value}
+            out["startMode"] = self.start_mode.value
+        return out
+
+
+@dataclass(slots=True)
+class UserSettingsUpdate:
+    """Sparse PUT payload for ``SetUserSettings`` — sends flat values.
+
+    Source: ``SetUserSettings$$serializer.java``. All five fields are optional
+    and nullable, and ``core/JsonKt.java`` sets ``explicitNulls=false``, so the
+    app omits every field it is not changing. ``None`` therefore means "leave
+    unchanged", not "clear".
+    """
+
+    start_mode: str | None = None
+    cable_settings: str | None = None
+    minimum_charging_current: int | None = None
+    maximum_charging_current: int | None = None
+    charging_mode: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.start_mode is not None:
+            out["startMode"] = self.start_mode
+        if self.cable_settings is not None:
+            out["cableSettings"] = self.cable_settings
+        if self.minimum_charging_current is not None:
+            out["minimumChargingCurrent"] = self.minimum_charging_current
+        if self.maximum_charging_current is not None:
+            out["maximumChargingCurrent"] = self.maximum_charging_current
+        if self.charging_mode is not None:
+            out["chargingMode"] = self.charging_mode
         return out
 
 
@@ -195,12 +257,6 @@ class SolarSettings:
         wrappers, but the APK's ``SetSolarSettings`` DTO serialises each
         field as a bare ``Integer?``.
         """
-
-        def _integer_payload_value(field_name: str, value: float) -> int:
-            if not float(value).is_integer():
-                raise ValueError(f"{field_name} must be an integer-valued number, got {value!r}")
-            return int(value)
-
         out: dict[str, Any] = {}
         if (
             self.pure_solar_starting_current is not None

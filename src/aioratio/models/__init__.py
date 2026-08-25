@@ -43,6 +43,7 @@ from .settings import (
     SolarSettings,
     UpperLowerLimitSetting,
     UserSettings,
+    UserSettingsUpdate,
 )
 from .vehicle import Vehicle
 
@@ -70,6 +71,7 @@ __all__ = [
     "OcppDiagnosticStatus",
     # settings
     "UserSettings",
+    "UserSettingsUpdate",
     "ChargeModeSettings",
     "SolarSettings",
     "ChargeSchedule",

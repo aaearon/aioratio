@@ -36,6 +36,7 @@ from .models import (
     SessionHistoryPage,
     SolarSettings,
     UserSettings,
+    UserSettingsUpdate,
     Vehicle,
 )
 from .models.diagnostics import ChargerDiagnostics
@@ -366,7 +367,9 @@ class RatioClient:
         data = await self._get_settings(serial, "user")
         return UserSettings.from_dict(data or {})
 
-    async def set_user_settings(self, serial: str, settings: UserSettings | dict) -> None:
+    async def set_user_settings(
+        self, serial: str, settings: UserSettings | UserSettingsUpdate | dict
+    ) -> None:
         self._check_closed()
         await self._put_settings(serial, "user", self._coerce_body(settings))
 

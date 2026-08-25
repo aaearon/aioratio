@@ -6,6 +6,8 @@ shapes inferred from the decompiled APK DTOs.
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from aioratio.exceptions import RatioApiError
@@ -33,6 +35,7 @@ from aioratio.models import (
     TimeData,
     UpperLowerLimitSetting,
     UserSettings,
+    UserSettingsUpdate,
     Vehicle,
     WifiStatus,
 )
@@ -177,26 +180,39 @@ def test_firmware_update_job_requires_permission_default_and_explicit():
 
 
 def test_user_settings_nested():
+    """from_dict() unwraps the GET wrappers and ignores unknown keys.
+
+    Enum values are the real ones from the APK domain models — ``CableMode``
+    (LockAlways/LockWhenCarConnected/LockAutomatically), ``ChargingMode``
+    (Basic/Smart/SmartSolar/PureSolar) and ``StartMode`` (Auto/Manual) — and
+    the bounds use the wire keys ``lowerLimit``/``upperLimit``.
+    """
     payload = {
-        "cableSettings": {"value": "LOCKED", "allowedValues": ["LOCKED", "UNLOCKED"]},
-        "chargingMode": {"value": "SOLAR", "allowedValues": ["SOLAR", "FAST"]},
-        "maximumChargingCurrent": {"value": 16, "lower": 6, "upper": 32},
+        "cableSettings": {
+            "value": "LockAlways",
+            "allowedValues": ["LockAlways", "LockWhenCarConnected", "LockAutomatically"],
+        },
+        "chargingMode": {
+            "value": "Basic",
+            "allowedValues": ["Basic", "Smart", "SmartSolar", "PureSolar"],
+        },
+        "maximumChargingCurrent": {"value": 16, "lowerLimit": 6, "upperLimit": 32},
         "minimumChargingCurrent": {"value": 6},
-        "startMode": {"value": "AUTO", "allowedValues": ["AUTO", "MANUAL"]},
+        "startMode": {"value": "Manual", "allowedValues": ["Auto", "Manual"]},
         "extra_field": True,
     }
     s = UserSettings.from_dict(payload)
     assert s.cable_settings is not None
-    assert s.cable_settings.value == "LOCKED"
+    assert s.cable_settings.value == "LockAlways"
     assert s.charging_mode is not None
-    assert s.charging_mode.value == "SOLAR"
-    assert "FAST" in s.charging_mode.allowed_values
+    assert s.charging_mode.value == "Basic"
+    assert "SmartSolar" in s.charging_mode.allowed_values
     assert s.maximum_charging_current is not None
     assert s.maximum_charging_current.value == 16.0
     assert s.maximum_charging_current.lower == 6.0
     assert s.maximum_charging_current.upper == 32.0
     assert s.start_mode is not None
-    assert s.start_mode.value == "AUTO"
+    assert s.start_mode.value == "Manual"
 
 
 def test_user_settings_missing_optional():
@@ -531,6 +547,30 @@ def test_upper_lower_limit_roundtrip_preserves_int_type():
     assert isinstance(result["value"], int)
 
 
+def test_upper_lower_limit_roundtrip_int_value_with_populated_raw():
+    """Regression: ``int.is_integer()`` only exists from Python 3.12.
+
+    ``from_dict()`` coerces via ``float()``, so the crash needs an ``int``
+    assigned afterwards while ``raw["value"]`` is itself an ``int`` — the
+    ``dataclasses.replace(..., value=16)`` pattern.
+    """
+    setting = dataclasses.replace(
+        UpperLowerLimitSetting.from_dict({"value": 8, "lowerLimit": 6, "upperLimit": 32}),
+        value=16,
+    )
+    result = setting.to_dict()
+    assert result["value"] == 16
+    assert isinstance(result["value"], int)
+    assert result["lowerLimit"] == 6
+
+
+def test_upper_lower_limit_roundtrip_int_value_with_empty_raw():
+    """The same ``int`` value with no ``raw`` skips the integrality branch."""
+    setting = UpperLowerLimitSetting(value=16)
+    assert setting.raw == {}
+    assert setting.to_dict() == {"value": 16}
+
+
 def test_upper_lower_limit_roundtrip_no_value():
     payload = {"lowerLimit": 0, "upperLimit": 100}
     setting = UpperLowerLimitSetting.from_dict(payload)
@@ -564,6 +604,7 @@ def test_solar_settings_roundtrip():
 
 
 def test_user_settings_roundtrip():
+    """GET wrappers in, flat SetUserSettings values out — no bounds metadata."""
     payload = {
         "maximumChargingCurrent": {
             "value": 16,
@@ -575,8 +616,7 @@ def test_user_settings_roundtrip():
     }
     settings = UserSettings.from_dict(payload)
     result = settings.to_dict()
-    assert result["maximumChargingCurrent"]["isChangeAllowed"] is True
-    assert result["maximumChargingCurrent"]["value"] == 16
+    assert result == {"maximumChargingCurrent": 16, "minimumChargingCurrent": 6}
 
 
 def test_schedule_slot_to_dict():
@@ -1131,3 +1171,32 @@ def test_user_settings_nested_real_enum_values():
     assert s.maximum_charging_current.upper == 32.0
     assert s.start_mode is not None
     assert s.start_mode.value == "Auto"
+
+
+def test_user_settings_update_is_empty_by_default():
+    """Every field is optional; an untouched update changes nothing."""
+    assert UserSettingsUpdate().to_dict() == {}
+
+
+def test_user_settings_update_emits_only_the_changed_key():
+    assert UserSettingsUpdate(maximum_charging_current=16).to_dict() == {
+        "maximumChargingCurrent": 16
+    }
+
+
+def test_user_settings_update_uses_serializer_keys():
+    update = UserSettingsUpdate(
+        start_mode="Manual",
+        cable_settings="LockWhenCarConnected",
+        minimum_charging_current=6,
+        maximum_charging_current=16,
+        charging_mode="SmartSolar",
+    )
+    assert update.to_dict() == {
+        "startMode": "Manual",
+        "cableSettings": "LockWhenCarConnected",
+        "minimumChargingCurrent": 6,
+        "maximumChargingCurrent": 16,
+        "chargingMode": "SmartSolar",
+    }
+    assert set(update.to_dict()) == _SET_USER_SETTINGS_KEYS

@@ -73,7 +73,7 @@ optionally a `TokenStore`), use as an async context manager.
 | `start_charge(serial, vehicle_id=None)` | `None` | `vehicle_id` is optional but recommended; if omitted, the client sends an empty `startCommandParameters` object. |
 | `stop_charge(serial)` | `None` | |
 | `user_settings(serial)` | `UserSettings` | |
-| `set_user_settings(serial, settings)` | `None` | Accepts `UserSettings` dataclass (recommended) or a pre-formed camelCase dict. |
+| `set_user_settings(serial, settings)` | `None` | Accepts a sparse `UserSettingsUpdate` (recommended — sends only the keys you set), a `UserSettings` dataclass, or a pre-formed camelCase dict. |
 | `charge_schedule(serial)` | `ChargeSchedule` | |
 | `set_charge_schedule(serial, schedule)` | `None` | |
 | `solar_settings(serial)` | `SolarSettings` | |
@@ -291,7 +291,8 @@ Early. Used in production by [`home-assistant-ratio`](https://github.com/aaearon
 
 - **`set_solar_settings` HTTP 502** ([#9](https://github.com/aaearon/aioratio/issues/9)): Fixed. The cloud PUT endpoint expects flat nullable integers (`"sunOffDelayMinutes": 5`), not the nested value objects returned by GET (`{"value": 5, "isChangeAllowed": true, ...}`). `SolarSettings.to_dict()` now emits the correct PUT shape. Smoke-tested against the live API.
 - `ScheduleSlot` and `ChargeSchedule` now have explicit `to_dict()` methods for controlled serialisation.
-- `UpperLowerLimitSetting.to_dict()` now echoes back the full raw GET shape (used by `UserSettings.to_dict()`).
+- **`set_user_settings` HTTP 400** ([#25](https://github.com/aaearon/aioratio/issues/25)): Fixed. `SetUserSettings` declares five optional, nullable fields — two `Int?` and three `String?` — so `UserSettings.to_dict()` now emits bare scalars (`"cableSettings": "LockAutomatically"`) instead of echoing the GET value objects, which the API rejected with `Changing setting "cableSettings" ... is out of range`. Use `UserSettingsUpdate` to write a single key.
+- `UpperLowerLimitSetting.to_dict()` echoes back the full raw GET shape for round-tripping; it is no longer used to build PUT bodies.
 
 ## License
 
