@@ -420,15 +420,25 @@ class ScheduleSlot:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {}
-        if self.start is not None:
-            h, m = _parse_hhmm(self.start, "start")
-            out["beginTimeHour"] = h
-            out["beginTimeMinute"] = m
-        if self.end is not None:
-            h, m = _parse_hhmm(self.end, "end")
-            out["endTimeHour"] = h
-            out["endTimeMinute"] = m
+        """Serialise to a ``ScheduledChargingSession`` wire object.
+
+        ``ScheduledChargingSession$$serializer.java:42-45`` declares all four
+        time fields required and ``childSerializers()`` types them as four bare
+        ``IntSerializer.INSTANCE``, so a slot missing ``start`` or ``end``
+        cannot be represented on the wire. ``_week_schedule()`` copies each
+        slot into every selected day, so accepting one here would emit a
+        serializer-invalid week plan.
+        """
+        begin_h, begin_m = _parse_hhmm(
+            _required_payload_value("ScheduleSlot.start", self.start), "start"
+        )
+        end_h, end_m = _parse_hhmm(_required_payload_value("ScheduleSlot.end", self.end), "end")
+        out: dict[str, Any] = {
+            "beginTimeHour": begin_h,
+            "beginTimeMinute": begin_m,
+            "endTimeHour": end_h,
+            "endTimeMinute": end_m,
+        }
         if self.charging_mode is not None:
             out["chargingMode"] = self.charging_mode
         return out

@@ -693,6 +693,41 @@ def test_schedule_slot_to_dict_rejects_out_of_range_hour():
         slot.to_dict()
 
 
+def test_schedule_slot_to_dict_missing_end_raises():
+    """``ScheduledChargingSession$$serializer.java:42-45`` declares all four time
+    fields required and non-nullable (four bare ``IntSerializer.INSTANCE``), so a
+    half-filled slot is a malformed object, not a sparse update.
+    """
+    with pytest.raises(ValueError, match=r"ScheduleSlot\.end"):
+        ScheduleSlot(start="22:00", days=["monday"]).to_dict()
+
+
+def test_schedule_slot_to_dict_missing_start_raises():
+    with pytest.raises(ValueError, match=r"ScheduleSlot\.start"):
+        ScheduleSlot(end="06:00", days=["monday"]).to_dict()
+
+
+def test_schedule_slot_to_dict_empty_raises():
+    with pytest.raises(ValueError, match=r"ScheduleSlot\.start"):
+        ScheduleSlot().to_dict()
+
+
+def test_charge_schedule_update_rejects_incomplete_slot():
+    """``_week_schedule()`` copies each slot into every selected day, so an
+    incomplete slot would otherwise poison the whole week plan.
+    """
+    update = ChargeScheduleUpdate(slots=[ScheduleSlot(start="22:00", days=["monday"])])
+    with pytest.raises(ValueError, match=r"ScheduleSlot\.end"):
+        update.to_dict()
+
+
+def test_schedule_slot_from_dict_stays_permissive():
+    """Parsing must still tolerate whatever the server sends."""
+    slot = ScheduleSlot.from_dict({"beginTimeHour": 22, "beginTimeMinute": 0})
+    assert slot.start == "22:00"
+    assert slot.end is None
+
+
 def test_charge_schedule_has_no_to_dict():
     """The GET model cannot express "leave this field alone", so it must not be
     usable as a PUT body. ``ChargeScheduleUpdate`` replaces it.
