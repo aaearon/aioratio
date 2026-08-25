@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from aioratio.ble.const import ADVERT_MANUFACTURER_ID
 from aioratio.ble.discovery import (
