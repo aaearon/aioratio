@@ -19,6 +19,7 @@ from aioratio.models import (
     ChargerStatus,
     ChargerStatusError,
     ChargeSchedule,
+    ChargeScheduleUpdate,
     ChargeSessionStatus,
     CommandRequest,
     CpmsConfig,
@@ -27,10 +28,12 @@ from aioratio.models import (
     Indicators,
     InstallerOcppSettings,
     OcppFieldStatus,
+    OcppSettingsUpdate,
     ScheduleSlot,
     Session,
     SessionHistoryPage,
     SolarSettings,
+    SolarSettingsUpdate,
     StartCommandParameters,
     TimeData,
     UpperLowerLimitSetting,
@@ -239,7 +242,7 @@ def test_solar_settings_full():
 def test_charge_schedule_with_slots():
     payload = {
         "enabled": {"value": True},
-        "scheduleType": {"value": "WEEKLY"},
+        "scheduleType": {"value": "WeekSchedule"},
         "randomizedTimeOffsetEnabled": {"value": False},
         "slots": [
             {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]},
@@ -249,7 +252,7 @@ def test_charge_schedule_with_slots():
     }
     sch = ChargeSchedule.from_dict(payload)
     assert sch.enabled is True
-    assert sch.schedule_type == "WEEKLY"
+    assert sch.schedule_type == "WeekSchedule"
     assert sch.randomized_time_offset_enabled is False
     assert len(sch.slots) == 2
     assert all(isinstance(s, ScheduleSlot) for s in sch.slots)
@@ -390,6 +393,28 @@ def test_vehicle_from_dict_full():
     assert v.vehicle_name == "Polestar"
     assert v.license_plate == "AB-12-CD"
     assert v.vehicle_state == "ACTIVE"
+
+
+def test_vehicle_to_dict_omits_none_fields():
+    """``Vehicle$$serializer`` declares all four keys optional+nullable and the
+    app's writer runs under ``explicitNulls=false``, so ``null`` is never sent.
+    """
+    vehicle = Vehicle(vehicle_name="Polestar", license_plate="AB-12-CD")
+    assert vehicle.to_dict() == {"vehicleName": "Polestar", "licensePlate": "AB-12-CD"}
+
+
+def test_vehicle_to_dict_full_round_trip():
+    payload = {
+        "vehicleName": "Polestar",
+        "licensePlate": "AB-12-CD",
+        "vehicleId": "v1",
+        "vehicleState": "ACTIVE",
+    }
+    assert Vehicle.from_dict(payload).to_dict() == payload
+
+
+def test_vehicle_to_dict_empty():
+    assert Vehicle().to_dict() == {}
 
 
 def test_vehicle_all_optional():
@@ -668,36 +693,55 @@ def test_schedule_slot_to_dict_rejects_out_of_range_hour():
         slot.to_dict()
 
 
-def test_charge_schedule_to_dict():
-    """ChargeSchedule.to_dict() emits per-day weekSchedule for PUT."""
-    payload = {
-        "enabled": {"value": True},
-        "scheduleType": {"value": "WeekSchedule"},
-        "randomizedTimeOffsetEnabled": {"value": False},
-        "slots": [
-            {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]},
-        ],
-    }
-    schedule = ChargeSchedule.from_dict(payload)
-    result = schedule.to_dict()
-    assert result["enabled"] is True
-    assert result["scheduleType"] == "WeekSchedule"
-    assert result["randomizedTimeOffsetEnabled"] is False
-    assert "weekSchedule" in result
-    week = result["weekSchedule"]
-    assert len(week["monday"]) == 1
-    assert week["monday"][0] == {
+def test_charge_schedule_has_no_to_dict():
+    """The GET model cannot express "leave this field alone", so it must not be
+    usable as a PUT body. ``ChargeScheduleUpdate`` replaces it.
+    """
+    assert not hasattr(ChargeSchedule, "to_dict")
+
+
+def test_charge_schedule_update_empty_emits_nothing():
+    """All five keys are ``addElement(..., true)`` and nullable, and the app
+    runs under ``explicitNulls=false`` — an untouched field is simply absent.
+    """
+    assert ChargeScheduleUpdate().to_dict() == {}
+
+
+def test_charge_schedule_update_week_plan_variant():
+    """``WeekPlanViewModel.java:99`` builds ChargeScheduleModel(true, null,
+    WeekSchedule, null, weekScheduleModel, mask 10) — exactly three keys.
+    """
+    update = ChargeScheduleUpdate(
+        enabled=True,
+        schedule_type="WeekSchedule",
+        slots=[ScheduleSlot(start="22:00", end="06:00", days=["monday", "tuesday"])],
+    )
+    slot = {
         "beginTimeHour": 22,
         "beginTimeMinute": 0,
         "endTimeHour": 6,
         "endTimeMinute": 0,
     }
-    assert len(week["tuesday"]) == 1
-    assert week["wednesday"] == []
+    assert update.to_dict() == {
+        "enabled": True,
+        "scheduleType": "WeekSchedule",
+        "weekSchedule": {
+            "monday": [slot],
+            "tuesday": [slot],
+            "wednesday": [],
+            "thursday": [],
+            "friday": [],
+            "saturday": [],
+            "sunday": [],
+        },
+    }
 
 
-def test_charge_schedule_to_dict_with_delayed_start():
-    schedule = ChargeSchedule(
+def test_charge_schedule_update_delayed_start_variant():
+    """``DelayedStartViewModel.java:125`` (mask 18) sends ``enabled``,
+    ``scheduleType`` and ``delayedStart`` — and no ``weekSchedule``.
+    """
+    update = ChargeScheduleUpdate(
         enabled=True,
         schedule_type="DelayedStart",
         delayed_start=DelayedStartSetting(
@@ -706,12 +750,166 @@ def test_charge_schedule_to_dict_with_delayed_start():
             charging_mode="Smart",
         ),
     )
-    result = schedule.to_dict()
-    assert result["delayedStart"] == {
-        "beginTimeHour": 7,
-        "beginTimeMinute": 0,
-        "chargingMode": "Smart",
+    assert update.to_dict() == {
+        "enabled": True,
+        "scheduleType": "DelayedStart",
+        "delayedStart": {
+            "beginTimeHour": 7,
+            "beginTimeMinute": 0,
+            "chargingMode": "Smart",
+        },
     }
+
+
+def test_charge_schedule_update_enabled_and_offset_variant():
+    """``ChargeScheduleViewModel.java:127`` (mask 24) is the only call site that
+    sends ``randomizedTimeOffsetEnabled``; it never sends a payload object.
+    """
+    update = ChargeScheduleUpdate(
+        enabled=False,
+        randomized_time_offset_enabled=True,
+        schedule_type="WeekSchedule",
+    )
+    assert update.to_dict() == {
+        "enabled": False,
+        "randomizedTimeOffsetEnabled": True,
+        "scheduleType": "WeekSchedule",
+    }
+
+
+def test_charge_schedule_update_emits_false_booleans():
+    """``False`` is a real value, not an absence — it must reach the wire."""
+    assert ChargeScheduleUpdate(enabled=False, randomized_time_offset_enabled=False).to_dict() == {
+        "enabled": False,
+        "randomizedTimeOffsetEnabled": False,
+    }
+
+
+def test_charge_schedule_update_week_schedule_independent_of_schedule_type():
+    """``ChargeSchedulePutSettings$$serializer`` imposes no coupling between
+    ``scheduleType`` and ``weekSchedule``; the DTO must not invent one.
+    """
+    result = ChargeScheduleUpdate(slots=[]).to_dict()
+    assert result == {
+        "weekSchedule": {
+            "monday": [],
+            "tuesday": [],
+            "wednesday": [],
+            "thursday": [],
+            "friday": [],
+            "saturday": [],
+            "sunday": [],
+        }
+    }
+
+
+def test_charge_schedule_update_slot_without_days_applies_to_all_days():
+    update = ChargeScheduleUpdate(slots=[ScheduleSlot(start="22:00", end="06:00")])
+    week = update.to_dict()["weekSchedule"]
+    assert all(len(week[day]) == 1 for day in week)
+    assert len(week) == 7
+
+
+def test_charge_schedule_update_from_get_model_is_lossless():
+    """A caller restoring a captured schedule needs a mode-aware helper, so the
+    GET model must be convertible field-for-field.
+    """
+    schedule = ChargeSchedule.from_dict(
+        {
+            "enabled": {"value": True},
+            "scheduleType": {"value": "DelayedStart"},
+            "randomizedTimeOffsetEnabled": {"value": True},
+            "delayedStart": {"value": {"beginTimeHour": 7, "beginTimeMinute": 30}},
+        }
+    )
+    update = ChargeScheduleUpdate(
+        enabled=schedule.enabled,
+        randomized_time_offset_enabled=schedule.randomized_time_offset_enabled,
+        schedule_type=schedule.schedule_type,
+        delayed_start=schedule.delayed_start,
+    )
+    assert update.to_dict() == {
+        "enabled": True,
+        "randomizedTimeOffsetEnabled": True,
+        "scheduleType": "DelayedStart",
+        "delayedStart": {"beginTimeHour": 7, "beginTimeMinute": 30},
+    }
+
+
+# ----- Sparse settings update DTOs ------------------------------------------
+
+
+def test_solar_settings_update_sparse_single_key():
+    """``SetSolarSettings$$serializer`` declares four optional nullable ``Int``
+    fields: smartSolarStartingCurrent, pureSolarStartingCurrent,
+    sunOffDelayMinutes, sunOnDelayMinutes.
+    """
+    assert SolarSettingsUpdate(pure_solar_starting_current=6).to_dict() == {
+        "pureSolarStartingCurrent": 6
+    }
+
+
+def test_solar_settings_update_all_keys():
+    update = SolarSettingsUpdate(
+        smart_solar_starting_current=8,
+        pure_solar_starting_current=6,
+        sun_off_delay_minutes=5,
+        sun_on_delay_minutes=3,
+    )
+    assert update.to_dict() == {
+        "smartSolarStartingCurrent": 8,
+        "pureSolarStartingCurrent": 6,
+        "sunOffDelayMinutes": 5,
+        "sunOnDelayMinutes": 3,
+    }
+
+
+def test_solar_settings_update_empty():
+    assert SolarSettingsUpdate().to_dict() == {}
+
+
+def test_solar_settings_update_rejects_fractional_value():
+    """A fractional value cannot be represented by a Kotlin ``Int?`` and the
+    live API answers HTTP 502 for a non-integer JSON number.
+    """
+    update = dataclasses.replace(SolarSettingsUpdate(), sun_on_delay_minutes=5.5)
+    with pytest.raises(ValueError, match="sunOnDelayMinutes"):
+        update.to_dict()
+
+
+def test_user_settings_update_rejects_fractional_value():
+    update = dataclasses.replace(UserSettingsUpdate(), maximum_charging_current=16.5)
+    with pytest.raises(ValueError, match="maximumChargingCurrent"):
+        update.to_dict()
+
+
+def test_ocpp_settings_update_sparse_single_key():
+    """``SetInstallerOcppSettings$$serializer``: enabled (Boolean?), cpms
+    (ConfiguredCpms?), chargePointIdentifier (String?) — all optional.
+    """
+    assert OcppSettingsUpdate(enabled=True).to_dict() == {"enabled": True}
+
+
+def test_ocpp_settings_update_emits_false_enabled():
+    assert OcppSettingsUpdate(enabled=False).to_dict() == {"enabled": False}
+
+
+def test_ocpp_settings_update_cpms_nested_object():
+    """``cpms`` is legitimately nested — ``ConfiguredCpms`` has two required
+    string keys, ``centralSystem`` and ``url``.
+    """
+    update = OcppSettingsUpdate(
+        cpms=CpmsConfig(central_system="Ratio", url="wss://ocpp.example/v16"),
+        charge_point_identifier="CP-1",
+    )
+    assert update.to_dict() == {
+        "cpms": {"centralSystem": "Ratio", "url": "wss://ocpp.example/v16"},
+        "chargePointIdentifier": "CP-1",
+    }
+
+
+def test_ocpp_settings_update_empty():
+    assert OcppSettingsUpdate().to_dict() == {}
 
 
 # ----- ChargerDiagnostics ---------------------------------------------------

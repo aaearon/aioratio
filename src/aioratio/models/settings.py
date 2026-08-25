@@ -217,9 +217,13 @@ class UserSettingsUpdate:
         if self.cable_settings is not None:
             out["cableSettings"] = self.cable_settings
         if self.minimum_charging_current is not None:
-            out["minimumChargingCurrent"] = self.minimum_charging_current
+            out["minimumChargingCurrent"] = _integer_payload_value(
+                "minimumChargingCurrent", self.minimum_charging_current
+            )
         if self.maximum_charging_current is not None:
-            out["maximumChargingCurrent"] = self.maximum_charging_current
+            out["maximumChargingCurrent"] = _integer_payload_value(
+                "maximumChargingCurrent", self.maximum_charging_current
+            )
         if self.charging_mode is not None:
             out["chargingMode"] = self.charging_mode
         return out
@@ -279,6 +283,43 @@ class SolarSettings:
         if self.sun_on_delay_minutes is not None and self.sun_on_delay_minutes.value is not None:
             out["sunOnDelayMinutes"] = _integer_payload_value(
                 "sunOnDelayMinutes", self.sun_on_delay_minutes.value
+            )
+        return out
+
+
+@dataclass(slots=True)
+class SolarSettingsUpdate:
+    """Sparse PUT payload for ``SetSolarSettings`` — bare integers.
+
+    Source: ``SetSolarSettings$$serializer.java``, four optional elements whose
+    child serializers are all ``getNullable(IntSerializer)``. ``None`` means
+    "leave unchanged". The live API rejects both ``{"value": N}`` wrappers and
+    stringified numbers with HTTP 502, so the value must reach the wire as a
+    JSON integer.
+    """
+
+    smart_solar_starting_current: int | None = None
+    pure_solar_starting_current: int | None = None
+    sun_off_delay_minutes: int | None = None
+    sun_on_delay_minutes: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.smart_solar_starting_current is not None:
+            out["smartSolarStartingCurrent"] = _integer_payload_value(
+                "smartSolarStartingCurrent", self.smart_solar_starting_current
+            )
+        if self.pure_solar_starting_current is not None:
+            out["pureSolarStartingCurrent"] = _integer_payload_value(
+                "pureSolarStartingCurrent", self.pure_solar_starting_current
+            )
+        if self.sun_off_delay_minutes is not None:
+            out["sunOffDelayMinutes"] = _integer_payload_value(
+                "sunOffDelayMinutes", self.sun_off_delay_minutes
+            )
+        if self.sun_on_delay_minutes is not None:
+            out["sunOnDelayMinutes"] = _integer_payload_value(
+                "sunOnDelayMinutes", self.sun_on_delay_minutes
             )
         return out
 
@@ -380,6 +421,24 @@ class ScheduleSlot:
         return out
 
 
+def _week_schedule(slots: list[ScheduleSlot]) -> dict[str, list[dict[str, Any]]]:
+    """Build the ``WeekScheduleSetting`` object for a charge-schedule PUT.
+
+    ``WeekScheduleSetting$$serializer.java`` declares all seven day keys as
+    required (``addElement("monday", false)`` ...), so every day is present
+    even when it holds no sessions. A slot with no ``days`` applies to all of
+    them, matching the previous behaviour.
+    """
+    week: dict[str, list[dict[str, Any]]] = {day: [] for day in _DAYS}
+    for slot in slots:
+        serialised = slot.to_dict()
+        for day in slot.days or _DAYS:
+            day_lower = _DAY_ABBR_TO_FULL.get(str(day).upper(), str(day).lower())
+            if day_lower in week:
+                week[day_lower].append(dict(serialised))
+    return week
+
+
 @dataclass(slots=True)
 class ChargeSchedule:
     """Charge schedule with a list of slots.
@@ -389,8 +448,12 @@ class ChargeSchedule:
 
     The GET response wraps booleans/enums in ``{"value": ...}``
     objects and nests slots under per-day keys in ``weekSchedule``.
-    The PUT DTO expects flat booleans, a ``ScheduleType`` enum
-    string, and ``weekSchedule`` with per-day session lists.
+
+    This is a **read** model only and deliberately has no ``to_dict()``: its
+    ``enabled`` and ``randomized_time_offset_enabled`` fields are plain
+    ``bool``s and so cannot represent "leave this field unchanged", which is
+    exactly what a sparse PUT needs. Use :class:`ChargeScheduleUpdate` to
+    write; :meth:`RatioClient.set_charge_schedule` rejects this class.
     """
 
     enabled: bool = False
@@ -431,23 +494,49 @@ class ChargeSchedule:
             slots=slots,
         )
 
+
+@dataclass(slots=True)
+class ChargeScheduleUpdate:
+    """Sparse PUT payload for ``ChargeSchedulePutSettings``.
+
+    Source: ``ChargeSchedulePutSettings$$serializer.java``. All five elements
+    are ``addElement(..., true)`` and every child serializer is wrapped in
+    ``getNullable(...)``; ``core/JsonKt.java`` sets ``explicitNulls = false``.
+    ``None`` therefore means "leave this field unchanged", which the GET model
+    :class:`ChargeSchedule` cannot express — that is why it has no ``to_dict``.
+
+    The three app call sites each send a different three-key subset:
+
+    * week plan (``WeekPlanViewModel``) — ``enabled``, ``scheduleType``,
+      ``weekSchedule``
+    * delayed start (``DelayedStartViewModel``) — ``enabled``, ``scheduleType``,
+      ``delayedStart``
+    * schedule toggle (``ChargeScheduleViewModel``) — ``enabled``,
+      ``randomizedTimeOffsetEnabled``, ``scheduleType``
+
+    ``slots`` serialises to ``weekSchedule`` and is emitted **independently**
+    of ``schedule_type``: the serializer imposes no coupling between the two,
+    so choosing a valid combination is the caller's responsibility.
+    """
+
+    enabled: bool | None = None
+    randomized_time_offset_enabled: bool | None = None
+    schedule_type: str | None = None  # ScheduleType: "WeekSchedule" | "DelayedStart"
+    delayed_start: DelayedStartSetting | None = None
+    slots: list[ScheduleSlot] | None = None
+
     def to_dict(self) -> dict[str, Any]:
-        """Emit the PUT shape expected by ``ChargeSchedulePutSettings``."""
-        out: dict[str, Any] = {"enabled": self.enabled}
+        out: dict[str, Any] = {}
+        if self.enabled is not None:
+            out["enabled"] = self.enabled
+        if self.randomized_time_offset_enabled is not None:
+            out["randomizedTimeOffsetEnabled"] = self.randomized_time_offset_enabled
         if self.schedule_type is not None:
             out["scheduleType"] = self.schedule_type
-        out["randomizedTimeOffsetEnabled"] = self.randomized_time_offset_enabled
         if self.delayed_start is not None:
             out["delayedStart"] = self.delayed_start.to_dict()
-        week: dict[str, list[dict[str, Any]]] = {day: [] for day in _DAYS}
-        for slot in self.slots:
-            serialised = slot.to_dict()
-            for day in slot.days or _DAYS:
-                day_key = str(day).upper()
-                day_lower = _DAY_ABBR_TO_FULL.get(day_key, str(day).lower())
-                if day_lower in week:
-                    week[day_lower].append(dict(serialised))
-        out["weekSchedule"] = week
+        if self.slots is not None:
+            out["weekSchedule"] = _week_schedule(self.slots)
         return out
 
 
@@ -570,6 +659,32 @@ class InstallerOcppSettings:
 
     def to_dict(self) -> dict[str, Any]:
         """Emit the flat PUT shape — only the three writable fields."""
+        out: dict[str, Any] = {}
+        if self.enabled is not None:
+            out["enabled"] = self.enabled
+        if self.cpms is not None:
+            out["cpms"] = self.cpms.to_dict()
+        if self.charge_point_identifier is not None:
+            out["chargePointIdentifier"] = self.charge_point_identifier
+        return out
+
+
+@dataclass(slots=True)
+class OcppSettingsUpdate:
+    """Sparse PUT payload for ``SetInstallerOcppSettings``.
+
+    Source: ``SetInstallerOcppSettings$$serializer.java`` — three optional
+    elements typed ``Boolean?``, ``ConfiguredCpms?`` and ``String?``. ``cpms``
+    is legitimately a nested object (``ConfiguredCpms$$serializer.java``:
+    required ``centralSystem`` and ``url`` strings); what it never carries is
+    the GET ``ValueDTOWithReason`` envelope.
+    """
+
+    enabled: bool | None = None
+    cpms: CpmsConfig | None = None
+    charge_point_identifier: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         if self.enabled is not None:
             out["enabled"] = self.enabled

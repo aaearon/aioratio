@@ -33,9 +33,21 @@ class Vehicle:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "vehicleId": self.vehicle_id,
-            "vehicleName": self.vehicle_name,
-            "licensePlate": self.license_plate,
-            "vehicleState": self.vehicle_state,
-        }
+        """Emit the POST/PUT shape, omitting fields that are ``None``.
+
+        ``Vehicle$$serializer.java`` declares all four elements optional
+        (``addElement(..., true)``) and nullable, and ``core/JsonKt.java``
+        configures the app's ``Json`` with ``explicitNulls = false``. The app
+        therefore never sends ``"vehicleId": null`` when creating a vehicle;
+        neither do we.
+        """
+        out: dict[str, Any] = {}
+        if self.vehicle_name is not None:
+            out["vehicleName"] = self.vehicle_name
+        if self.license_plate is not None:
+            out["licensePlate"] = self.license_plate
+        if self.vehicle_id is not None:
+            out["vehicleId"] = self.vehicle_id
+        if self.vehicle_state is not None:
+            out["vehicleState"] = self.vehicle_state
+        return out

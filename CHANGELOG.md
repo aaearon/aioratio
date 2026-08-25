@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Added
+
+- Sparse cloud-write DTOs authored directly from the APK `Set*$$serializer.java`
+  element lists: `ChargeScheduleUpdate`, `SolarSettingsUpdate` and
+  `OcppSettingsUpdate` (joining `UserSettingsUpdate`). Each omits every field
+  left as `None`, so a one-field change sends a one-key body instead of
+  re-asserting the whole cached document. All are exported from
+  `aioratio.models`. (#29)
+
+### Changed
+
+- `Vehicle.to_dict()` omits `None` fields. `Vehicle$$serializer.java` declares
+  all four elements optional and `core/JsonKt.java` sets `explicitNulls=false`,
+  so the app never sends `"vehicleId": null`. Consumers that persist or compare
+  this dict will see fewer keys. (#27)
+- `set_solar_settings()` and `set_ocpp_settings()` also accept their new
+  `*Update` types; the GET models remain accepted.
+
+### Removed
+
+- **Breaking:** `ChargeSchedule.to_dict()`. `ChargeSchedulePutSettings$$serializer.java`
+  declares all five elements optional and nullable, but the read model's
+  `enabled: bool = False` and `randomized_time_offset_enabled: bool = False`
+  cannot express "leave unchanged" — so every PUT silently disabled the
+  schedule, reset the randomized offset and overwrote the stored week plan
+  (including on a delayed-start write). `set_charge_schedule()` now raises
+  `TypeError` for a `ChargeSchedule` **before** any request is made, because
+  `_coerce_body()` would otherwise fall back to `dataclasses.asdict()` and send
+  an even worse body. Migration: build a `ChargeScheduleUpdate` with only the
+  fields you intend to change. (#28)
+
+  ```python
+  # before
+  await client.set_charge_schedule(serial, schedule)          # ChargeSchedule
+  # after
+  await client.set_charge_schedule(
+      serial,
+      ChargeScheduleUpdate(enabled=True, schedule_type="WeekSchedule", slots=slots),
+  )
+  ```
+
 ## [0.11.0] — 2026-05-15
 
 ### Added

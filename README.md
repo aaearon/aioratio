@@ -75,13 +75,13 @@ optionally a `TokenStore`), use as an async context manager.
 | `user_settings(serial)` | `UserSettings` | |
 | `set_user_settings(serial, settings)` | `None` | Accepts a sparse `UserSettingsUpdate` (recommended — sends only the keys you set), a `UserSettings` dataclass, or a pre-formed camelCase dict. |
 | `charge_schedule(serial)` | `ChargeSchedule` | |
-| `set_charge_schedule(serial, schedule)` | `None` | |
+| `set_charge_schedule(serial, schedule)` | `None` | Takes a sparse `ChargeScheduleUpdate` (sends only the keys you set) or a pre-formed camelCase dict. Passing the `ChargeSchedule` read model raises `TypeError`. |
 | `solar_settings(serial)` | `SolarSettings` | |
-| `set_solar_settings(serial, settings)` | `None` | Accepts `SolarSettings` dataclass (recommended) or a pre-formed camelCase dict. |
+| `set_solar_settings(serial, settings)` | `None` | Accepts a sparse `SolarSettingsUpdate` (recommended), a `SolarSettings` dataclass, or a pre-formed camelCase dict. |
 | `grant_upgrade_permission(serial, firmware_update_job_ids)` | `None` | Approve queued firmware update jobs by id. Raises `ValueError` if the list is empty. |
 | `diagnostics(serial)` | `ChargerDiagnostics` | Read-only system info: hardware/firmware versions, network status (WiFi/ethernet), backend connectivity, OCPP status. |
 | `ocpp_settings(serial)` | `InstallerOcppSettings` | Read installer OCPP settings including `is_change_allowed` metadata per field. |
-| `set_ocpp_settings(serial, settings)` | `None` | Write OCPP settings (enabled, cpms, charge_point_identifier). Accepts `InstallerOcppSettings` or a flat dict. |
+| `set_ocpp_settings(serial, settings)` | `None` | Write OCPP settings (enabled, cpms, charge_point_identifier). Accepts a sparse `OcppSettingsUpdate` (recommended), `InstallerOcppSettings`, or a flat dict. |
 | `cpms_options(serial)` | `list[CpmsConfig]` | List operator-provided CPMS choices. Returns `[]` on 403/error (operator may not expose this). |
 | `session_history(...)` | `SessionHistoryPage` | Paginated; pass `next_token` to continue. |
 | `vehicles()` | `list[Vehicle]` | |
@@ -253,7 +253,7 @@ Files under `src/aioratio/`:
 - `auth.py` -- `CognitoSrpAuth` driver: USER_SRP first-login, ConfirmDevice + UpdateDeviceStatus, REFRESH_TOKEN_AUTH (with rotation handling), DEVICE_SRP_AUTH second-login. Refresh serialised via `asyncio.Lock`. Accepts a `timeout` parameter (default 30s) for Cognito HTTP calls. Exposes `invalidate_access_token()` for callers to force a refresh on the next access.
 - `srp.py` — pure-Python Cognito SRP-6a (3072-bit MODP, `Caldera Derived Key` HKDF, Java-style timestamp). Uses Java `BigInteger.toByteArray()` (`padHex`) semantics throughout — variable length with `0x00` sign byte when high bit set. Both `UserSrp` and `DeviceSrp` variants.
 - `token_store.py` — `TokenBundle` dataclass + `TokenStore` ABC + `MemoryTokenStore` + `JsonFileTokenStore` (atomic write).
-- `models/` — dataclasses derived from APK DTOs: `Charger`, `ChargerOverview`, `ChargerStatus`, `UserSettings`, `ChargeSchedule`, `SolarSettings`, `InstallerOcppSettings`, `CpmsConfig`, `ChargerDiagnostics`, `Session`, `SessionHistoryPage`, `Vehicle`, plus nested types. All have a `from_dict()` classmethod tolerant of unknown fields. `InstallerOcppSettings.to_dict()` emits the flat PUT shape; `ChargerDiagnostics` is read-only (no `to_dict`).
+- `models/` — dataclasses derived from APK DTOs: `Charger`, `ChargerOverview`, `ChargerStatus`, `UserSettings`, `ChargeSchedule`, `SolarSettings`, `InstallerOcppSettings`, `CpmsConfig`, `ChargerDiagnostics`, `Session`, `SessionHistoryPage`, `Vehicle`, plus nested types. All have a `from_dict()` classmethod tolerant of unknown fields. `InstallerOcppSettings.to_dict()` emits the flat PUT shape; `ChargerDiagnostics` and `ChargeSchedule` are read-only (no `to_dict`). Writes should go through the sparse `*Update` DTOs.
 - `exceptions.py`, `const.py`.
 
 ## Cognito specifics (notes for maintainers and LLMs)
@@ -290,9 +290,11 @@ slipped past them. Live smoke is the source of truth.
 Early. Used in production by [`home-assistant-ratio`](https://github.com/aaearon/home-assistant-ratio) against the **Ratio Solar** charger. Field nullability across some models is best-effort against the decompiled APK; flag mismatches as issues.
 
 - **`set_solar_settings` HTTP 502** ([#9](https://github.com/aaearon/aioratio/issues/9)): Fixed. The cloud PUT endpoint expects flat nullable integers (`"sunOffDelayMinutes": 5`), not the nested value objects returned by GET (`{"value": 5, "isChangeAllowed": true, ...}`). `SolarSettings.to_dict()` now emits the correct PUT shape. Smoke-tested against the live API.
-- `ScheduleSlot` and `ChargeSchedule` now have explicit `to_dict()` methods for controlled serialisation.
+- `ScheduleSlot` has an explicit `to_dict()` for controlled serialisation. `ChargeSchedule.to_dict()` was **removed** ([#28](https://github.com/aaearon/aioratio/issues/28)) — its `bool` fields could not express "leave unchanged", so every PUT disabled the schedule, reset `randomizedTimeOffsetEnabled` and overwrote the stored week plan. Use `ChargeScheduleUpdate`; `set_charge_schedule()` now rejects the read model with `TypeError`.
 - **`set_user_settings` HTTP 400** ([#25](https://github.com/aaearon/aioratio/issues/25)): Fixed. `SetUserSettings` declares five optional, nullable fields — two `Int?` and three `String?` — so `UserSettings.to_dict()` now emits bare scalars (`"cableSettings": "LockAutomatically"`) instead of echoing the GET value objects, which the API rejected with `Changing setting "cableSettings" ... is out of range`. Use `UserSettingsUpdate` to write a single key.
 - `UpperLowerLimitSetting.to_dict()` echoes back the full raw GET shape for round-tripping; it is no longer used to build PUT bodies.
+- **Sparse update DTOs** ([#29](https://github.com/aaearon/aioratio/issues/29)): `UserSettingsUpdate`, `SolarSettingsUpdate`, `OcppSettingsUpdate` and `ChargeScheduleUpdate` each mirror their `Set*$$serializer.java` element list, emit only the fields you set, and are the supported way to write settings without re-asserting cached values.
+- **`Vehicle.to_dict()` omits `None`** ([#27](https://github.com/aaearon/aioratio/issues/27)): all four `Vehicle$$serializer` elements are optional and the app writes under `explicitNulls=false`, so `add_vehicle()` no longer posts `"vehicleId": null, "vehicleState": null`.
 
 ## License
 

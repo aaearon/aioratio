@@ -31,10 +31,13 @@ from .models import (
     Charger,
     ChargerOverview,
     ChargeSchedule,
+    ChargeScheduleUpdate,
     CpmsConfig,
     InstallerOcppSettings,
+    OcppSettingsUpdate,
     SessionHistoryPage,
     SolarSettings,
+    SolarSettingsUpdate,
     UserSettings,
     UserSettingsUpdate,
     Vehicle,
@@ -378,8 +381,23 @@ class RatioClient:
         data = await self._get_settings(serial, "chargeSchedule")
         return ChargeSchedule.from_dict(data or {})
 
-    async def set_charge_schedule(self, serial: str, schedule: ChargeSchedule | dict) -> None:
+    async def set_charge_schedule(self, serial: str, schedule: ChargeScheduleUpdate | dict) -> None:
+        """PUT a sparse charge-schedule update.
+
+        :class:`ChargeSchedule` (the GET model) is rejected: its ``bool``
+        fields cannot express "leave unchanged", so writing it back silently
+        disables the schedule, resets ``randomizedTimeOffsetEnabled`` and
+        overwrites the stored week plan. The check has to happen here rather
+        than in ``_coerce_body()``, which would otherwise fall back to
+        ``dataclasses.asdict()`` and send an even worse body.
+        """
         self._check_closed()
+        if isinstance(schedule, ChargeSchedule):
+            raise TypeError(
+                "set_charge_schedule() does not accept the ChargeSchedule read model; "
+                "build a sparse ChargeScheduleUpdate with only the fields you intend "
+                "to change"
+            )
         await self._put_settings(serial, "chargeSchedule", self._coerce_body(schedule))
 
     async def solar_settings(self, serial: str) -> SolarSettings:
@@ -387,7 +405,9 @@ class RatioClient:
         data = await self._get_settings(serial, "solar")
         return SolarSettings.from_dict(data or {})
 
-    async def set_solar_settings(self, serial: str, settings: SolarSettings | dict) -> None:
+    async def set_solar_settings(
+        self, serial: str, settings: SolarSettings | SolarSettingsUpdate | dict
+    ) -> None:
         self._check_closed()
         await self._put_settings(serial, "solar", self._coerce_body(settings))
 
@@ -406,7 +426,9 @@ class RatioClient:
         data = await self._get_settings(serial, "installerOcpp")
         return InstallerOcppSettings.from_dict(data if isinstance(data, dict) else {})
 
-    async def set_ocpp_settings(self, serial: str, settings: InstallerOcppSettings | dict) -> None:
+    async def set_ocpp_settings(
+        self, serial: str, settings: InstallerOcppSettings | OcppSettingsUpdate | dict
+    ) -> None:
         self._check_closed()
         await self._put_settings(serial, "installerOcpp", self._coerce_body(settings))
 
