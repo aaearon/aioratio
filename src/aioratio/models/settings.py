@@ -104,10 +104,21 @@ class UpperLowerLimitSetting:
 
 @dataclass(slots=True)
 class EnumValue:
-    """Generic ``EnumDataClass<T>`` wrapper from the APK."""
+    """Generic ``EnumDataClass<T>`` wrapper from the APK.
+
+    ``EnumDataClass$$serializer.java``:36-38 declares all three elements —
+    ``value``, ``isChangeAllowed`` and ``allowedValues`` — as required
+    (``addElement(..., false)``).
+    """
 
     value: str | None = None
     allowed_values: list[str] = field(default_factory=list)
+    is_change_allowed: bool = True
+    """Whether the charger will accept a write to this setting.
+
+    Defaults to ``True`` so a consumer gating on it does not black out every
+    setting when the key is absent, mirroring :class:`OcppFieldStatus`.
+    """
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -115,6 +126,7 @@ class EnumValue:
         return cls(
             value=data.get("value"),
             allowed_values=[str(v) for v in av],
+            is_change_allowed=bool(data.get("isChangeAllowed", True)),
         )
 
 
@@ -122,11 +134,16 @@ class EnumValue:
 class ChargeModeSettings:
     """Charging-mode setting with allowed values.
 
-    Source: ``ChargeModeSettings.java``.
+    Source: ``ChargeModeSettings.java``. Its serializer
+    (``ChargeModeSettings$$serializer.java``:41-43) carries the same three
+    required elements as :class:`EnumValue`, ``isChangeAllowed`` included.
     """
 
     value: str | None = None
     allowed_values: list[str] = field(default_factory=list)
+    is_change_allowed: bool = True
+    """Whether the charger will accept a charging-mode change. See
+    :attr:`EnumValue.is_change_allowed` for why this defaults to ``True``."""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -134,6 +151,7 @@ class ChargeModeSettings:
         return cls(
             value=data.get("value"),
             allowed_values=[str(v) for v in av],
+            is_change_allowed=bool(data.get("isChangeAllowed", True)),
         )
 
 
