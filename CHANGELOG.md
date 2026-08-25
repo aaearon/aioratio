@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-08-25
+
+### Added
+
+- `EnumValue.is_change_allowed` and `ChargeModeSettings.is_change_allowed`.
+  `EnumDataClass$$serializer.java`:36-38 and
+  `ChargeModeSettings$$serializer.java`:41-43 both declare three **required**
+  elements — `value`, `isChangeAllowed`, `allowedValues` — but `from_dict`
+  parsed only the first and third, so the charger's own statement about
+  whether a setting is writable never reached consumers. This affects
+  `startMode`, `cableSettings` and `chargingMode`. Both fields default to
+  `True` when the key is absent, mirroring `OcppFieldStatus`, so a consumer
+  gating on them does not black out every setting against a charger or
+  fixture that omits it. Purely additive: both are read-only GET models with
+  no `to_dict`.
+
 ## [0.12.0] — 2026-08-25
 
 ### Added

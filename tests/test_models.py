@@ -12,6 +12,7 @@ import pytest
 
 from aioratio.exceptions import RatioApiError
 from aioratio.models import (
+    ChargeModeSettings,
     Charger,
     ChargerDiagnostics,
     ChargerFirmwareStatus,
@@ -24,6 +25,7 @@ from aioratio.models import (
     CommandRequest,
     CpmsConfig,
     DelayedStartSetting,
+    EnumValue,
     FirmwareUpdateJob,
     Indicators,
     InstallerOcppSettings,
@@ -1467,3 +1469,75 @@ def test_user_settings_update_uses_serializer_keys():
         "chargingMode": "SmartSolar",
     }
     assert set(update.to_dict()) == _SET_USER_SETTINGS_KEYS
+
+
+# ---------------------------------------------------------------------------
+# isChangeAllowed on enum settings
+# ---------------------------------------------------------------------------
+
+
+def test_enum_value_carries_is_change_allowed():
+    """``EnumDataClass`` declares ``isChangeAllowed`` required, not optional.
+
+    ``EnumDataClass$$serializer.java``:36-38 lists ``value``,
+    ``isChangeAllowed`` and ``allowedValues``, each ``addElement(..., false)``.
+    Dropping the flag leaves consumers unable to tell a locked setting from a
+    writable one.
+    """
+    ev = EnumValue.from_dict(
+        {
+            "value": "Manual",
+            "isChangeAllowed": False,
+            "allowedValues": ["Auto", "Manual"],
+        }
+    )
+    assert ev.value == "Manual"
+    assert ev.allowed_values == ["Auto", "Manual"]
+    assert ev.is_change_allowed is False
+
+
+def test_charge_mode_settings_carries_is_change_allowed():
+    """``ChargeModeSettings$$serializer.java``:41-43 — same three elements."""
+    cms = ChargeModeSettings.from_dict(
+        {
+            "value": "Smart",
+            "isChangeAllowed": False,
+            "allowedValues": ["Basic", "Smart"],
+        }
+    )
+    assert cms.value == "Smart"
+    assert cms.is_change_allowed is False
+
+
+def test_enum_is_change_allowed_defaults_to_true_when_absent():
+    """Absent flag means "assume writable", matching ``OcppFieldStatus``.
+
+    A consumer gating entity availability on this must not black out every
+    entity when a charger (or a test fixture) omits the key.
+    """
+    assert EnumValue.from_dict({"value": "Auto"}).is_change_allowed is True
+    assert ChargeModeSettings.from_dict({"value": "Smart"}).is_change_allowed is True
+    assert EnumValue().is_change_allowed is True
+    assert ChargeModeSettings().is_change_allowed is True
+
+
+def test_user_settings_propagates_is_change_allowed():
+    """A locked charger reports the flag per setting; both must survive."""
+    s = UserSettings.from_dict(
+        {
+            "startMode": {
+                "value": "Auto",
+                "isChangeAllowed": False,
+                "allowedValues": ["Auto", "Manual"],
+            },
+            "chargingMode": {
+                "value": "Smart",
+                "isChangeAllowed": True,
+                "allowedValues": ["Basic", "Smart"],
+            },
+        }
+    )
+    assert s.start_mode is not None
+    assert s.start_mode.is_change_allowed is False
+    assert s.charging_mode is not None
+    assert s.charging_mode.is_change_allowed is True
