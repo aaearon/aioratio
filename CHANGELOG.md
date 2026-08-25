@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Internal
+
+- Added a `ruff` CI job (lint + format check, `src tests`, ruff 0.15.12) as a
+  sibling of the existing `test` job, so lint drift cannot land unnoticed.
+- Bumped the `ruff-pre-commit` hook from `v0.6.9` to `v0.15.12`. The nine-version
+  skew is why the drift accumulated: pre-commit and CI disagreed about what
+  "clean" meant.
+- Applied the resulting fixes: `typing.Mapping` -> `collections.abc.Mapping` in
+  `tests/ble/test_discovery.py` (UP035) and one reformat in
+  `src/aioratio/ble/client.py`.
+
 ## [0.13.0] — 2026-08-25
 
 ### Added

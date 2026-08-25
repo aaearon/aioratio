@@ -139,9 +139,7 @@ class BleClient:
                 address, timeout=connect_timeout, adapter=adapter
             )
         else:
-            device = await BleakScanner.find_device_by_address(
-                address, timeout=connect_timeout
-            )
+            device = await BleakScanner.find_device_by_address(address, timeout=connect_timeout)
         if device is None:
             raise RatioBleConnectionError(
                 f"No advert seen for {address} within {connect_timeout:.0f}s"
