@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-08-25
+
 ### Added
 
 - Sparse cloud-write DTOs authored directly from the APK `Set*$$serializer.java`
@@ -93,6 +95,10 @@
 
 ## [0.11.0] — 2026-05-15
 
+These changes were originally drafted as `0.10.2`, but that version was
+never tagged, released or published to PyPI — the work shipped as part of
+`0.11.0`, so the draft section has been folded in here.
+
 ### Added
 
 - `BleClient.poll_sensor_values(period=3.0)` — async iterator that yields
@@ -123,8 +129,12 @@
   so writes and responses cannot interleave against the same charger. All
   existing sequential callers are unaffected; this is a strict superset of
   the previous safety.
-
-## [0.10.2] — 2026-05-15
+- `_looks_like_bond_required` and `_BOND_REQUIRED_MARKERS` moved from
+  `aioratio.ble.client` to `aioratio.ble.transport` (lower in the dependency
+  stack). Two new markers (`error=5 ` / `error=15 `) added to catch the
+  `bleak_esphome` GATT-error wording verbatim.
+- Internal: tighten pyright surface, remove lazy `# type: ignore` suppressions
+  (carried over from the unreleased changes since 0.10.1).
 
 ### Fixed
 
@@ -140,15 +150,6 @@
   which restarts encryption from the proxy's stored LTK. Also correct for
   BlueZ adapters: the first-ever connection bonds, subsequent connections
   auto-encrypt from the kernel's stored LTK and the retry never fires.
-
-### Changed
-
-- `_looks_like_bond_required` and `_BOND_REQUIRED_MARKERS` moved from
-  `aioratio.ble.client` to `aioratio.ble.transport` (lower in the dependency
-  stack). Two new markers (`error=5 ` / `error=15 `) added to catch the
-  `bleak_esphome` GATT-error wording verbatim.
-- Internal: tighten pyright surface, remove lazy `# type: ignore` suppressions
-  (carried over from the unreleased changes since 0.10.1).
 
 ## [0.10.1] — 2026-05-13
 
