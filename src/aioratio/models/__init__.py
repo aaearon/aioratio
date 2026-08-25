@@ -34,15 +34,19 @@ from .history import Session, SessionHistoryPage, TimeData
 from .settings import (
     ChargeModeSettings,
     ChargeSchedule,
+    ChargeScheduleUpdate,
     CpmsConfig,
     DelayedStartSetting,
     EnumValue,
     InstallerOcppSettings,
     OcppFieldStatus,
+    OcppSettingsUpdate,
     ScheduleSlot,
     SolarSettings,
+    SolarSettingsUpdate,
     UpperLowerLimitSetting,
     UserSettings,
+    UserSettingsUpdate,
 )
 from .vehicle import Vehicle
 
@@ -70,9 +74,12 @@ __all__ = [
     "OcppDiagnosticStatus",
     # settings
     "UserSettings",
+    "UserSettingsUpdate",
     "ChargeModeSettings",
     "SolarSettings",
+    "SolarSettingsUpdate",
     "ChargeSchedule",
+    "ChargeScheduleUpdate",
     "ScheduleSlot",
     "DelayedStartSetting",
     "UpperLowerLimitSetting",
@@ -80,6 +87,7 @@ __all__ = [
     "CpmsConfig",
     "OcppFieldStatus",
     "InstallerOcppSettings",
+    "OcppSettingsUpdate",
     # command
     "CommandRequest",
     "StartCommandParameters",

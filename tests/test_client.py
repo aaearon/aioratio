@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -23,6 +24,12 @@ from aioratio.exceptions import (
 from aioratio.models import (
     ChargerOverview,
     ChargeSchedule,
+    ChargeScheduleUpdate,
+    CpmsConfig,
+    DelayedStartSetting,
+    OcppSettingsUpdate,
+    ScheduleSlot,
+    SolarSettingsUpdate,
     UserSettings,
     Vehicle,
 )
@@ -259,7 +266,10 @@ async def test_set_user_settings_put_body_dict(client_with_fake_transport):
 async def test_set_user_settings_put_body_model(client_with_fake_transport):
     client, fake = client_with_fake_transport
     fake.queue(None)
-    settings = UserSettings.from_dict({"chargingMode": {"value": "FAST"}})
+    # "Smart" is a real ChargingMode value (Basic/Smart/SmartSolar/PureSolar).
+    settings = UserSettings.from_dict(
+        {"chargingMode": {"value": "Smart", "allowedValues": ["Basic", "Smart"]}}
+    )
     fake.calls.clear()
     fake.queue(None)
     await client.set_user_settings("S1", settings)
@@ -270,43 +280,129 @@ async def test_set_user_settings_put_body_model(client_with_fake_transport):
     inner = body["userSettings"]
     assert "chargingMode" in inner
     assert "charging_mode" not in inner
-    assert inner["chargingMode"]["value"] == "FAST"
-    # Read-only fields (allowedValues, lower, upper) must not appear in PUT body
-    assert "allowedValues" not in inner["chargingMode"]
-    assert "allowed_values" not in inner["chargingMode"]
+    # SetUserSettings types chargingMode as a nullable String, not a value object.
+    assert inner["chargingMode"] == "Smart"
+    # Read-only metadata (allowedValues, lower, upper) must not appear in a PUT body
+    assert inner == {"chargingMode": "Smart"}
 
 
-async def test_set_charge_schedule_camel_case_keys(client_with_fake_transport):
-    from aioratio.models import ChargeSchedule, ScheduleSlot
+_EMPTY_WEEK = {
+    "monday": [],
+    "tuesday": [],
+    "wednesday": [],
+    "thursday": [],
+    "friday": [],
+    "saturday": [],
+    "sunday": [],
+}
 
+
+def _assert_transaction_id(body: dict) -> None:
+    """``_new_transaction_id()`` is ``uuid.uuid4().hex[:16]``."""
+    assert re.fullmatch(r"[0-9a-f]{16}", body["transactionId"])
+
+
+async def test_set_charge_schedule_week_plan_exact_body(client_with_fake_transport):
+    """Mirrors ``WeekPlanViewModel.java:99`` (mask 10): enabled + scheduleType +
+    weekSchedule, and nothing else.
+    """
     client, fake = client_with_fake_transport
     fake.queue(None)
-    schedule = ChargeSchedule(
+    update = ChargeScheduleUpdate(
         enabled=True,
-        schedule_type="WEEKLY",
-        randomized_time_offset_enabled=True,
+        schedule_type="WeekSchedule",
         slots=[ScheduleSlot(start="22:00", end="06:00", days=["monday", "tuesday"])],
     )
-    await client.set_charge_schedule("S1", schedule)
-    inner = fake.calls[0]["json"]["chargeScheduleSettings"]
-    assert inner["scheduleType"] == "WEEKLY"
-    assert inner["randomizedTimeOffsetEnabled"] is True
-    assert "schedule_type" not in inner
-    assert inner["weekSchedule"]["monday"] == [
-        {"beginTimeHour": 22, "beginTimeMinute": 0, "endTimeHour": 6, "endTimeMinute": 0}
-    ]
-    assert inner["weekSchedule"]["tuesday"] == [
-        {"beginTimeHour": 22, "beginTimeMinute": 0, "endTimeHour": 6, "endTimeMinute": 0}
-    ]
-    assert inner["weekSchedule"]["wednesday"] == []
+    await client.set_charge_schedule("S1", update)
+
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "/users/user-abc/chargers/S1/settings"
+    assert call["params"] == {"id": "chargeSchedule"}
+    body = call["json"]
+    _assert_transaction_id(body)
+    assert set(body) == {"transactionId", "chargeScheduleSettings"}
+    slot = {"beginTimeHour": 22, "beginTimeMinute": 0, "endTimeHour": 6, "endTimeMinute": 0}
+    assert body["chargeScheduleSettings"] == {
+        "enabled": True,
+        "scheduleType": "WeekSchedule",
+        "weekSchedule": {**_EMPTY_WEEK, "monday": [slot], "tuesday": [slot]},
+    }
+
+
+async def test_set_charge_schedule_delayed_start_exact_body(client_with_fake_transport):
+    """Mirrors ``DelayedStartViewModel.java:125`` (mask 18) — no ``weekSchedule``,
+    so the stored week plan is left intact.
+    """
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    await client.set_charge_schedule(
+        "S1",
+        ChargeScheduleUpdate(
+            enabled=True,
+            schedule_type="DelayedStart",
+            delayed_start=DelayedStartSetting(
+                begin_time_hour=7, begin_time_minute=0, charging_mode="Smart"
+            ),
+        ),
+    )
+
+    body = fake.calls[0]["json"]
+    _assert_transaction_id(body)
+    assert set(body) == {"transactionId", "chargeScheduleSettings"}
+    assert body["chargeScheduleSettings"] == {
+        "enabled": True,
+        "scheduleType": "DelayedStart",
+        "delayedStart": {"beginTimeHour": 7, "beginTimeMinute": 0, "chargingMode": "Smart"},
+    }
+
+
+async def test_set_charge_schedule_enabled_and_offset_exact_body(client_with_fake_transport):
+    """Mirrors ``ChargeScheduleViewModel.java:127`` (mask 24)."""
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    await client.set_charge_schedule(
+        "S1",
+        ChargeScheduleUpdate(
+            enabled=True,
+            randomized_time_offset_enabled=True,
+            schedule_type="WeekSchedule",
+        ),
+    )
+
+    body = fake.calls[0]["json"]
+    _assert_transaction_id(body)
+    assert body["chargeScheduleSettings"] == {
+        "enabled": True,
+        "randomizedTimeOffsetEnabled": True,
+        "scheduleType": "WeekSchedule",
+    }
+
+
+async def test_set_charge_schedule_rejects_get_model(client_with_fake_transport):
+    """Regression: ``_coerce_body()`` falls back to ``dataclasses.asdict()`` for
+    any object without ``to_dict()``, so deleting ``ChargeSchedule.to_dict()``
+    alone would silently produce a worse body. The GET model must be refused
+    before any request is made.
+    """
+    client, fake = client_with_fake_transport
+    schedule = ChargeSchedule(
+        enabled=True,
+        schedule_type="WeekSchedule",
+        slots=[ScheduleSlot(start="22:00", end="06:00", days=["monday"])],
+    )
+    with pytest.raises(TypeError, match="ChargeScheduleUpdate"):
+        await client.set_charge_schedule("S1", schedule)
+    assert fake.calls == []
 
 
 async def test_charge_schedule_get_and_set(client_with_fake_transport):
     client, fake = client_with_fake_transport
-    fake.queue({"enabled": True, "scheduleType": "WEEKLY", "slots": []})
+    fake.queue({"enabled": True, "scheduleType": "WeekSchedule", "slots": []})
     sched = await client.charge_schedule("S1")
     assert isinstance(sched, ChargeSchedule)
     assert sched.enabled is True
+    assert sched.schedule_type == "WeekSchedule"
     assert fake.calls[-1]["params"] == {"id": "chargeSchedule"}
 
     fake.queue(None)
@@ -315,8 +411,61 @@ async def test_charge_schedule_get_and_set(client_with_fake_transport):
     assert last["method"] == "PUT"
     assert last["params"] == {"id": "chargeSchedule"}
     body = last["json"]
-    assert "transactionId" in body
+    _assert_transaction_id(body)
     assert body["chargeScheduleSettings"] == {"enabled": False}
+
+
+async def test_set_solar_settings_update_exact_body(client_with_fake_transport):
+    """``SetSolarSettings`` takes bare integers; only the changed key is sent."""
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    await client.set_solar_settings("S1", SolarSettingsUpdate(pure_solar_starting_current=6))
+
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["params"] == {"id": "solar"}
+    body = call["json"]
+    _assert_transaction_id(body)
+    assert set(body) == {"transactionId", "solarSettings"}
+    assert body["solarSettings"] == {"pureSolarStartingCurrent": 6}
+
+
+async def test_set_ocpp_settings_update_exact_body(client_with_fake_transport):
+    """``SetInstallerOcppSettings``: enabled/cpms/chargePointIdentifier, all optional."""
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    await client.set_ocpp_settings(
+        "S1",
+        OcppSettingsUpdate(
+            enabled=True,
+            cpms=CpmsConfig(central_system="Ratio", url="wss://ocpp.example/v16"),
+        ),
+    )
+
+    call = fake.calls[0]
+    assert call["params"] == {"id": "installerOcpp"}
+    body = call["json"]
+    _assert_transaction_id(body)
+    assert set(body) == {"transactionId", "installerOcppSettings"}
+    assert body["installerOcppSettings"] == {
+        "enabled": True,
+        "cpms": {"centralSystem": "Ratio", "url": "wss://ocpp.example/v16"},
+    }
+
+
+async def test_add_vehicle_body_omits_null_fields(client_with_fake_transport):
+    """``Vehicle$$serializer`` marks all four keys optional and the app writes
+    under ``explicitNulls=false`` — a POST must not carry explicit nulls.
+    """
+    client, fake = client_with_fake_transport
+    fake.queue({"vehicleId": "v9", "vehicleName": "BMW", "licensePlate": "AB-12-CD"})
+    out = await client.add_vehicle(Vehicle(vehicle_name="BMW", license_plate="AB-12-CD"))
+
+    call = fake.calls[0]
+    assert call["method"] == "POST"
+    assert call["path"] == "/users/user-abc/vehicles"
+    assert call["json"] == {"vehicleName": "BMW", "licensePlate": "AB-12-CD"}
+    assert out.vehicle_id == "v9"
 
 
 async def test_user_settings_get_strips_envelope(client_with_fake_transport):
@@ -733,7 +882,7 @@ async def test_grant_upgrade_permission_empty_list_raises(client_with_fake_trans
 # diagnostics / ocpp_settings / set_ocpp_settings / cpms_options
 # ---------------------------------------------------------------------------
 
-from aioratio.models import ChargerDiagnostics, CpmsConfig, InstallerOcppSettings
+from aioratio.models import ChargerDiagnostics, InstallerOcppSettings
 
 
 async def test_diagnostics_get_url_and_parses(client_with_fake_transport):
@@ -914,3 +1063,132 @@ async def test_cpms_options_unknown_status_propagates(client_with_fake_transport
     fake.queue(RatioApiError("legacy error without status"))
     with pytest.raises(RatioApiError):
         await client.cpms_options("SER1")
+
+
+# ---------------------------------------------------------------------------
+# set_user_settings PUT wire contract
+#
+# SetUserSettings$$serializer.java descriptor (verbatim):
+#   addElement("startMode", true)              -> nullable String
+#   addElement("cableSettings", true)          -> nullable String
+#   addElement("minimumChargingCurrent", true) -> nullable Int
+#   addElement("maximumChargingCurrent", true) -> nullable Int
+#   addElement("chargingMode", true)           -> nullable String
+#
+# ChargerSettingsCloudDataSource.setUserIntSetting() constructs
+#   new SetUserSettings(null, null, null, boxInt(i), null, 23, null)
+# and core/JsonKt.java sets explicitNulls=false, so the real wire body is
+#   {"transactionId": "...", "userSettings": {"maximumChargingCurrent": 16}}
+# ---------------------------------------------------------------------------
+
+_GET_USER_SETTINGS_PAYLOAD: dict[str, Any] = {
+    "cableSettings": {
+        "value": "LockAutomatically",
+        "isChangeAllowed": True,
+        "allowedValues": ["LockAlways", "LockWhenCarConnected", "LockAutomatically"],
+    },
+    "chargingMode": {
+        "value": "SmartSolar",
+        "isChangeAllowed": True,
+        "allowedValues": ["Basic", "Smart", "SmartSolar", "PureSolar"],
+    },
+    "maximumChargingCurrent": {
+        "isChangeAllowed": True,
+        "lowerLimit": 6,
+        "upperLimit": 32,
+        "value": 16,
+    },
+    "minimumChargingCurrent": {
+        "isChangeAllowed": True,
+        "lowerLimit": 6,
+        "upperLimit": 16,
+        "value": 6,
+    },
+    "startMode": {
+        "value": "Auto",
+        "isChangeAllowed": True,
+        "allowedValues": ["Auto", "Manual"],
+    },
+}
+
+
+async def test_set_user_settings_sparse_max_current_body(client_with_fake_transport):
+    """Only max current populated -> the body carries exactly that one key."""
+    from aioratio.models import UpperLowerLimitSetting
+
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    settings = UserSettings(maximum_charging_current=UpperLowerLimitSetting(value=6))
+    await client.set_user_settings("S1", settings)
+
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["params"] == {"id": "user"}
+    body = call["json"]
+    assert set(body) == {"transactionId", "userSettings"}
+    assert isinstance(body["transactionId"], str)
+    assert body["userSettings"] == {"maximumChargingCurrent": 6}
+
+
+async def test_set_user_settings_max_current_does_not_resend_cable_settings_object(
+    client_with_fake_transport,
+):
+    """Regression: HTTP 400 'Changing setting "cableSettings" ... is out of range'.
+
+    A UserSettings loaded from the GET response and mutated to change only the
+    maximum charging current must never PUT ``cableSettings`` as a nested
+    ``{"value": ...}`` object — the server rejects the whole request.
+    """
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    assert settings.maximum_charging_current is not None
+    settings.maximum_charging_current.value = 6
+
+    await client.set_user_settings("S1", settings)
+
+    inner = fake.calls[0]["json"]["userSettings"]
+    assert not isinstance(inner.get("cableSettings"), dict), (
+        f"cableSettings must not be a nested object in a PUT body: {inner.get('cableSettings')!r}"
+    )
+    assert inner["maximumChargingCurrent"] == 6
+    for key, value in inner.items():
+        assert not isinstance(value, dict), f"{key} must be a bare scalar, got {value!r}"
+
+
+async def test_set_user_settings_put_body_never_carries_read_only_metadata(
+    client_with_fake_transport,
+):
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    await client.set_user_settings("S1", settings)
+
+    inner = fake.calls[0]["json"]["userSettings"]
+    serialised = json.dumps(inner)
+    for meta in ("isChangeAllowed", "allowedValues", "lowerLimit", "upperLimit"):
+        assert meta not in serialised, f"{meta} is GET-only metadata, not a PUT field"
+    assert set(inner) <= {
+        "startMode",
+        "cableSettings",
+        "minimumChargingCurrent",
+        "maximumChargingCurrent",
+        "chargingMode",
+    }
+
+
+async def test_set_user_settings_accepts_sparse_update_model(client_with_fake_transport):
+    """UserSettingsUpdate expresses "change only this key" — the app's shape."""
+    from aioratio.models import UserSettingsUpdate
+
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    await client.set_user_settings("S1", UserSettingsUpdate(maximum_charging_current=16))
+
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["params"] == {"id": "user"}
+    body = call["json"]
+    assert set(body) == {"transactionId", "userSettings"}
+    assert re.fullmatch(r"[0-9a-f]{16}", body["transactionId"])
+    assert body["userSettings"] == {"maximumChargingCurrent": 16}

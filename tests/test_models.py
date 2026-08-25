@@ -6,6 +6,8 @@ shapes inferred from the decompiled APK DTOs.
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from aioratio.exceptions import RatioApiError
@@ -17,6 +19,7 @@ from aioratio.models import (
     ChargerStatus,
     ChargerStatusError,
     ChargeSchedule,
+    ChargeScheduleUpdate,
     ChargeSessionStatus,
     CommandRequest,
     CpmsConfig,
@@ -25,14 +28,17 @@ from aioratio.models import (
     Indicators,
     InstallerOcppSettings,
     OcppFieldStatus,
+    OcppSettingsUpdate,
     ScheduleSlot,
     Session,
     SessionHistoryPage,
     SolarSettings,
+    SolarSettingsUpdate,
     StartCommandParameters,
     TimeData,
     UpperLowerLimitSetting,
     UserSettings,
+    UserSettingsUpdate,
     Vehicle,
     WifiStatus,
 )
@@ -177,26 +183,39 @@ def test_firmware_update_job_requires_permission_default_and_explicit():
 
 
 def test_user_settings_nested():
+    """from_dict() unwraps the GET wrappers and ignores unknown keys.
+
+    Enum values are the real ones from the APK domain models — ``CableMode``
+    (LockAlways/LockWhenCarConnected/LockAutomatically), ``ChargingMode``
+    (Basic/Smart/SmartSolar/PureSolar) and ``StartMode`` (Auto/Manual) — and
+    the bounds use the wire keys ``lowerLimit``/``upperLimit``.
+    """
     payload = {
-        "cableSettings": {"value": "LOCKED", "allowedValues": ["LOCKED", "UNLOCKED"]},
-        "chargingMode": {"value": "SOLAR", "allowedValues": ["SOLAR", "FAST"]},
-        "maximumChargingCurrent": {"value": 16, "lower": 6, "upper": 32},
+        "cableSettings": {
+            "value": "LockAlways",
+            "allowedValues": ["LockAlways", "LockWhenCarConnected", "LockAutomatically"],
+        },
+        "chargingMode": {
+            "value": "Basic",
+            "allowedValues": ["Basic", "Smart", "SmartSolar", "PureSolar"],
+        },
+        "maximumChargingCurrent": {"value": 16, "lowerLimit": 6, "upperLimit": 32},
         "minimumChargingCurrent": {"value": 6},
-        "startMode": {"value": "AUTO", "allowedValues": ["AUTO", "MANUAL"]},
+        "startMode": {"value": "Manual", "allowedValues": ["Auto", "Manual"]},
         "extra_field": True,
     }
     s = UserSettings.from_dict(payload)
     assert s.cable_settings is not None
-    assert s.cable_settings.value == "LOCKED"
+    assert s.cable_settings.value == "LockAlways"
     assert s.charging_mode is not None
-    assert s.charging_mode.value == "SOLAR"
-    assert "FAST" in s.charging_mode.allowed_values
+    assert s.charging_mode.value == "Basic"
+    assert "SmartSolar" in s.charging_mode.allowed_values
     assert s.maximum_charging_current is not None
     assert s.maximum_charging_current.value == 16.0
     assert s.maximum_charging_current.lower == 6.0
     assert s.maximum_charging_current.upper == 32.0
     assert s.start_mode is not None
-    assert s.start_mode.value == "AUTO"
+    assert s.start_mode.value == "Manual"
 
 
 def test_user_settings_missing_optional():
@@ -223,7 +242,7 @@ def test_solar_settings_full():
 def test_charge_schedule_with_slots():
     payload = {
         "enabled": {"value": True},
-        "scheduleType": {"value": "WEEKLY"},
+        "scheduleType": {"value": "WeekSchedule"},
         "randomizedTimeOffsetEnabled": {"value": False},
         "slots": [
             {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]},
@@ -233,7 +252,7 @@ def test_charge_schedule_with_slots():
     }
     sch = ChargeSchedule.from_dict(payload)
     assert sch.enabled is True
-    assert sch.schedule_type == "WEEKLY"
+    assert sch.schedule_type == "WeekSchedule"
     assert sch.randomized_time_offset_enabled is False
     assert len(sch.slots) == 2
     assert all(isinstance(s, ScheduleSlot) for s in sch.slots)
@@ -374,6 +393,28 @@ def test_vehicle_from_dict_full():
     assert v.vehicle_name == "Polestar"
     assert v.license_plate == "AB-12-CD"
     assert v.vehicle_state == "ACTIVE"
+
+
+def test_vehicle_to_dict_omits_none_fields():
+    """``Vehicle$$serializer`` declares all four keys optional+nullable and the
+    app's writer runs under ``explicitNulls=false``, so ``null`` is never sent.
+    """
+    vehicle = Vehicle(vehicle_name="Polestar", license_plate="AB-12-CD")
+    assert vehicle.to_dict() == {"vehicleName": "Polestar", "licensePlate": "AB-12-CD"}
+
+
+def test_vehicle_to_dict_full_round_trip():
+    payload = {
+        "vehicleName": "Polestar",
+        "licensePlate": "AB-12-CD",
+        "vehicleId": "v1",
+        "vehicleState": "ACTIVE",
+    }
+    assert Vehicle.from_dict(payload).to_dict() == payload
+
+
+def test_vehicle_to_dict_empty():
+    assert Vehicle().to_dict() == {}
 
 
 def test_vehicle_all_optional():
@@ -531,6 +572,30 @@ def test_upper_lower_limit_roundtrip_preserves_int_type():
     assert isinstance(result["value"], int)
 
 
+def test_upper_lower_limit_roundtrip_int_value_with_populated_raw():
+    """Regression: ``int.is_integer()`` only exists from Python 3.12.
+
+    ``from_dict()`` coerces via ``float()``, so the crash needs an ``int``
+    assigned afterwards while ``raw["value"]`` is itself an ``int`` — the
+    ``dataclasses.replace(..., value=16)`` pattern.
+    """
+    setting = dataclasses.replace(
+        UpperLowerLimitSetting.from_dict({"value": 8, "lowerLimit": 6, "upperLimit": 32}),
+        value=16,
+    )
+    result = setting.to_dict()
+    assert result["value"] == 16
+    assert isinstance(result["value"], int)
+    assert result["lowerLimit"] == 6
+
+
+def test_upper_lower_limit_roundtrip_int_value_with_empty_raw():
+    """The same ``int`` value with no ``raw`` skips the integrality branch."""
+    setting = UpperLowerLimitSetting(value=16)
+    assert setting.raw == {}
+    assert setting.to_dict() == {"value": 16}
+
+
 def test_upper_lower_limit_roundtrip_no_value():
     payload = {"lowerLimit": 0, "upperLimit": 100}
     setting = UpperLowerLimitSetting.from_dict(payload)
@@ -564,6 +629,7 @@ def test_solar_settings_roundtrip():
 
 
 def test_user_settings_roundtrip():
+    """GET wrappers in, flat SetUserSettings values out — no bounds metadata."""
     payload = {
         "maximumChargingCurrent": {
             "value": 16,
@@ -575,8 +641,7 @@ def test_user_settings_roundtrip():
     }
     settings = UserSettings.from_dict(payload)
     result = settings.to_dict()
-    assert result["maximumChargingCurrent"]["isChangeAllowed"] is True
-    assert result["maximumChargingCurrent"]["value"] == 16
+    assert result == {"maximumChargingCurrent": 16, "minimumChargingCurrent": 6}
 
 
 def test_schedule_slot_to_dict():
@@ -628,36 +693,90 @@ def test_schedule_slot_to_dict_rejects_out_of_range_hour():
         slot.to_dict()
 
 
-def test_charge_schedule_to_dict():
-    """ChargeSchedule.to_dict() emits per-day weekSchedule for PUT."""
-    payload = {
-        "enabled": {"value": True},
-        "scheduleType": {"value": "WeekSchedule"},
-        "randomizedTimeOffsetEnabled": {"value": False},
-        "slots": [
-            {"start": "22:00", "end": "06:00", "days": ["MON", "TUE"]},
-        ],
-    }
-    schedule = ChargeSchedule.from_dict(payload)
-    result = schedule.to_dict()
-    assert result["enabled"] is True
-    assert result["scheduleType"] == "WeekSchedule"
-    assert result["randomizedTimeOffsetEnabled"] is False
-    assert "weekSchedule" in result
-    week = result["weekSchedule"]
-    assert len(week["monday"]) == 1
-    assert week["monday"][0] == {
+def test_schedule_slot_to_dict_missing_end_raises():
+    """``ScheduledChargingSession$$serializer.java:42-45`` declares all four time
+    fields required and non-nullable (four bare ``IntSerializer.INSTANCE``), so a
+    half-filled slot is a malformed object, not a sparse update.
+    """
+    with pytest.raises(ValueError, match=r"ScheduleSlot\.end"):
+        ScheduleSlot(start="22:00", days=["monday"]).to_dict()
+
+
+def test_schedule_slot_to_dict_missing_start_raises():
+    with pytest.raises(ValueError, match=r"ScheduleSlot\.start"):
+        ScheduleSlot(end="06:00", days=["monday"]).to_dict()
+
+
+def test_schedule_slot_to_dict_empty_raises():
+    with pytest.raises(ValueError, match=r"ScheduleSlot\.start"):
+        ScheduleSlot().to_dict()
+
+
+def test_charge_schedule_update_rejects_incomplete_slot():
+    """``_week_schedule()`` copies each slot into every selected day, so an
+    incomplete slot would otherwise poison the whole week plan.
+    """
+    update = ChargeScheduleUpdate(slots=[ScheduleSlot(start="22:00", days=["monday"])])
+    with pytest.raises(ValueError, match=r"ScheduleSlot\.end"):
+        update.to_dict()
+
+
+def test_schedule_slot_from_dict_stays_permissive():
+    """Parsing must still tolerate whatever the server sends."""
+    slot = ScheduleSlot.from_dict({"beginTimeHour": 22, "beginTimeMinute": 0})
+    assert slot.start == "22:00"
+    assert slot.end is None
+
+
+def test_charge_schedule_has_no_to_dict():
+    """The GET model cannot express "leave this field alone", so it must not be
+    usable as a PUT body. ``ChargeScheduleUpdate`` replaces it.
+    """
+    assert not hasattr(ChargeSchedule, "to_dict")
+
+
+def test_charge_schedule_update_empty_emits_nothing():
+    """All five keys are ``addElement(..., true)`` and nullable, and the app
+    runs under ``explicitNulls=false`` — an untouched field is simply absent.
+    """
+    assert ChargeScheduleUpdate().to_dict() == {}
+
+
+def test_charge_schedule_update_week_plan_variant():
+    """``WeekPlanViewModel.java:99`` builds ChargeScheduleModel(true, null,
+    WeekSchedule, null, weekScheduleModel, mask 10) — exactly three keys.
+    """
+    update = ChargeScheduleUpdate(
+        enabled=True,
+        schedule_type="WeekSchedule",
+        slots=[ScheduleSlot(start="22:00", end="06:00", days=["monday", "tuesday"])],
+    )
+    slot = {
         "beginTimeHour": 22,
         "beginTimeMinute": 0,
         "endTimeHour": 6,
         "endTimeMinute": 0,
     }
-    assert len(week["tuesday"]) == 1
-    assert week["wednesday"] == []
+    assert update.to_dict() == {
+        "enabled": True,
+        "scheduleType": "WeekSchedule",
+        "weekSchedule": {
+            "monday": [slot],
+            "tuesday": [slot],
+            "wednesday": [],
+            "thursday": [],
+            "friday": [],
+            "saturday": [],
+            "sunday": [],
+        },
+    }
 
 
-def test_charge_schedule_to_dict_with_delayed_start():
-    schedule = ChargeSchedule(
+def test_charge_schedule_update_delayed_start_variant():
+    """``DelayedStartViewModel.java:125`` (mask 18) sends ``enabled``,
+    ``scheduleType`` and ``delayedStart`` — and no ``weekSchedule``.
+    """
+    update = ChargeScheduleUpdate(
         enabled=True,
         schedule_type="DelayedStart",
         delayed_start=DelayedStartSetting(
@@ -666,12 +785,166 @@ def test_charge_schedule_to_dict_with_delayed_start():
             charging_mode="Smart",
         ),
     )
-    result = schedule.to_dict()
-    assert result["delayedStart"] == {
-        "beginTimeHour": 7,
-        "beginTimeMinute": 0,
-        "chargingMode": "Smart",
+    assert update.to_dict() == {
+        "enabled": True,
+        "scheduleType": "DelayedStart",
+        "delayedStart": {
+            "beginTimeHour": 7,
+            "beginTimeMinute": 0,
+            "chargingMode": "Smart",
+        },
     }
+
+
+def test_charge_schedule_update_enabled_and_offset_variant():
+    """``ChargeScheduleViewModel.java:127`` (mask 24) is the only call site that
+    sends ``randomizedTimeOffsetEnabled``; it never sends a payload object.
+    """
+    update = ChargeScheduleUpdate(
+        enabled=False,
+        randomized_time_offset_enabled=True,
+        schedule_type="WeekSchedule",
+    )
+    assert update.to_dict() == {
+        "enabled": False,
+        "randomizedTimeOffsetEnabled": True,
+        "scheduleType": "WeekSchedule",
+    }
+
+
+def test_charge_schedule_update_emits_false_booleans():
+    """``False`` is a real value, not an absence — it must reach the wire."""
+    assert ChargeScheduleUpdate(enabled=False, randomized_time_offset_enabled=False).to_dict() == {
+        "enabled": False,
+        "randomizedTimeOffsetEnabled": False,
+    }
+
+
+def test_charge_schedule_update_week_schedule_independent_of_schedule_type():
+    """``ChargeSchedulePutSettings$$serializer`` imposes no coupling between
+    ``scheduleType`` and ``weekSchedule``; the DTO must not invent one.
+    """
+    result = ChargeScheduleUpdate(slots=[]).to_dict()
+    assert result == {
+        "weekSchedule": {
+            "monday": [],
+            "tuesday": [],
+            "wednesday": [],
+            "thursday": [],
+            "friday": [],
+            "saturday": [],
+            "sunday": [],
+        }
+    }
+
+
+def test_charge_schedule_update_slot_without_days_applies_to_all_days():
+    update = ChargeScheduleUpdate(slots=[ScheduleSlot(start="22:00", end="06:00")])
+    week = update.to_dict()["weekSchedule"]
+    assert all(len(week[day]) == 1 for day in week)
+    assert len(week) == 7
+
+
+def test_charge_schedule_update_from_get_model_is_lossless():
+    """A caller restoring a captured schedule needs a mode-aware helper, so the
+    GET model must be convertible field-for-field.
+    """
+    schedule = ChargeSchedule.from_dict(
+        {
+            "enabled": {"value": True},
+            "scheduleType": {"value": "DelayedStart"},
+            "randomizedTimeOffsetEnabled": {"value": True},
+            "delayedStart": {"value": {"beginTimeHour": 7, "beginTimeMinute": 30}},
+        }
+    )
+    update = ChargeScheduleUpdate(
+        enabled=schedule.enabled,
+        randomized_time_offset_enabled=schedule.randomized_time_offset_enabled,
+        schedule_type=schedule.schedule_type,
+        delayed_start=schedule.delayed_start,
+    )
+    assert update.to_dict() == {
+        "enabled": True,
+        "randomizedTimeOffsetEnabled": True,
+        "scheduleType": "DelayedStart",
+        "delayedStart": {"beginTimeHour": 7, "beginTimeMinute": 30},
+    }
+
+
+# ----- Sparse settings update DTOs ------------------------------------------
+
+
+def test_solar_settings_update_sparse_single_key():
+    """``SetSolarSettings$$serializer`` declares four optional nullable ``Int``
+    fields: smartSolarStartingCurrent, pureSolarStartingCurrent,
+    sunOffDelayMinutes, sunOnDelayMinutes.
+    """
+    assert SolarSettingsUpdate(pure_solar_starting_current=6).to_dict() == {
+        "pureSolarStartingCurrent": 6
+    }
+
+
+def test_solar_settings_update_all_keys():
+    update = SolarSettingsUpdate(
+        smart_solar_starting_current=8,
+        pure_solar_starting_current=6,
+        sun_off_delay_minutes=5,
+        sun_on_delay_minutes=3,
+    )
+    assert update.to_dict() == {
+        "smartSolarStartingCurrent": 8,
+        "pureSolarStartingCurrent": 6,
+        "sunOffDelayMinutes": 5,
+        "sunOnDelayMinutes": 3,
+    }
+
+
+def test_solar_settings_update_empty():
+    assert SolarSettingsUpdate().to_dict() == {}
+
+
+def test_solar_settings_update_rejects_fractional_value():
+    """A fractional value cannot be represented by a Kotlin ``Int?`` and the
+    live API answers HTTP 502 for a non-integer JSON number.
+    """
+    update = dataclasses.replace(SolarSettingsUpdate(), sun_on_delay_minutes=5.5)
+    with pytest.raises(ValueError, match="sunOnDelayMinutes"):
+        update.to_dict()
+
+
+def test_user_settings_update_rejects_fractional_value():
+    update = dataclasses.replace(UserSettingsUpdate(), maximum_charging_current=16.5)
+    with pytest.raises(ValueError, match="maximumChargingCurrent"):
+        update.to_dict()
+
+
+def test_ocpp_settings_update_sparse_single_key():
+    """``SetInstallerOcppSettings$$serializer``: enabled (Boolean?), cpms
+    (ConfiguredCpms?), chargePointIdentifier (String?) — all optional.
+    """
+    assert OcppSettingsUpdate(enabled=True).to_dict() == {"enabled": True}
+
+
+def test_ocpp_settings_update_emits_false_enabled():
+    assert OcppSettingsUpdate(enabled=False).to_dict() == {"enabled": False}
+
+
+def test_ocpp_settings_update_cpms_nested_object():
+    """``cpms`` is legitimately nested — ``ConfiguredCpms`` has two required
+    string keys, ``centralSystem`` and ``url``.
+    """
+    update = OcppSettingsUpdate(
+        cpms=CpmsConfig(central_system="Ratio", url="wss://ocpp.example/v16"),
+        charge_point_identifier="CP-1",
+    )
+    assert update.to_dict() == {
+        "cpms": {"centralSystem": "Ratio", "url": "wss://ocpp.example/v16"},
+        "chargePointIdentifier": "CP-1",
+    }
+
+
+def test_ocpp_settings_update_empty():
+    assert OcppSettingsUpdate().to_dict() == {}
 
 
 # ----- ChargerDiagnostics ---------------------------------------------------
@@ -814,9 +1087,43 @@ def test_cpms_config_to_dict():
     assert c.to_dict() == {"centralSystem": "Operator A", "url": "ws://a.example.com"}
 
 
-def test_cpms_config_to_dict_partial():
-    c = CpmsConfig(url="ws://a.example.com")
-    assert c.to_dict() == {"url": "ws://a.example.com"}
+def test_cpms_config_from_dict_tolerates_partial_server_payload():
+    """The read path stays permissive: the server may send an incomplete object."""
+    c = CpmsConfig.from_dict({"centralSystem": "Operator A"})
+    assert c.central_system == "Operator A"
+    assert c.url is None
+
+    empty = CpmsConfig.from_dict({})
+    assert empty.central_system is None
+    assert empty.url is None
+
+
+def test_cpms_config_to_dict_missing_url_raises():
+    """``ConfiguredCpms$$serializer.java:40-47`` — both elements required, non-null."""
+    with pytest.raises(ValueError, match=r"CpmsConfig\.url"):
+        CpmsConfig(central_system="Operator A").to_dict()
+
+
+def test_cpms_config_to_dict_missing_central_system_raises():
+    with pytest.raises(ValueError, match=r"CpmsConfig\.central_system"):
+        CpmsConfig(url="ws://a.example.com").to_dict()
+
+
+def test_cpms_config_to_dict_empty_raises():
+    with pytest.raises(ValueError, match=r"CpmsConfig\.central_system"):
+        CpmsConfig().to_dict()
+
+
+def test_installer_ocpp_settings_to_dict_rejects_partial_cpms():
+    settings = InstallerOcppSettings(enabled=True, cpms=CpmsConfig(central_system="Operator A"))
+    with pytest.raises(ValueError, match=r"CpmsConfig\.url"):
+        settings.to_dict()
+
+
+def test_ocpp_settings_update_to_dict_rejects_partial_cpms():
+    update = OcppSettingsUpdate(cpms=CpmsConfig(url="ws://a.example.com"))
+    with pytest.raises(ValueError, match=r"CpmsConfig\.central_system"):
+        update.to_dict()
 
 
 # ----- InstallerOcppSettings ------------------------------------------------
@@ -978,3 +1285,185 @@ def test_session_to_dict_no_vehicle():
     restored = Session.from_dict(result)
     assert restored.session_id == "s2"
     assert restored.vehicle is None
+
+
+# ----- UserSettings PUT contract (SetUserSettings$$serializer) ----------------
+#
+# Authored verbatim from the decompiled APK:
+#   charger_settings/data/data_source/cloud/SetUserSettings$$serializer.java
+#
+#   pluginGeneratedSerialDescriptor.addElement("startMode", true);
+#   pluginGeneratedSerialDescriptor.addElement("cableSettings", true);
+#   pluginGeneratedSerialDescriptor.addElement("minimumChargingCurrent", true);
+#   pluginGeneratedSerialDescriptor.addElement("maximumChargingCurrent", true);
+#   pluginGeneratedSerialDescriptor.addElement("chargingMode", true);
+#
+#   childSerializers() -> nullable(StringSerializer), nullable(StringSerializer),
+#                         nullable(IntSerializer),    nullable(IntSerializer),
+#                         nullable(StringSerializer)
+#
+# i.e. the PUT DTO is FLAT: three nullable strings and two nullable ints.
+# The GET response, by contrast, wraps every field in a value object
+# ({value, isChangeAllowed, allowedValues} / {value, lowerLimit, upperLimit,
+# isChangeAllowed}). core/JsonKt.java sets explicitNulls=false, so unset
+# fields are omitted entirely and the app sends exactly ONE key per request.
+#
+# Real enum values (domain/model/*.java):
+#   CableMode:    LockAlways | LockWhenCarConnected | LockAutomatically
+#   StartMode:    Auto | Manual
+#   ChargingMode: Basic | Smart | SmartSolar | PureSolar
+
+_SET_USER_SETTINGS_KEYS = {
+    "startMode",
+    "cableSettings",
+    "minimumChargingCurrent",
+    "maximumChargingCurrent",
+    "chargingMode",
+}
+
+_READ_ONLY_METADATA_KEYS = (
+    "isChangeAllowed",
+    "allowedValues",
+    "lowerLimit",
+    "upperLimit",
+    "lower",
+    "upper",
+    "changeNotAllowedReason",
+)
+
+# A realistic GET /settings?id=user response body (inner userSettings object).
+_GET_USER_SETTINGS_PAYLOAD = {
+    "cableSettings": {
+        "value": "LockAutomatically",
+        "isChangeAllowed": True,
+        "allowedValues": ["LockAlways", "LockWhenCarConnected", "LockAutomatically"],
+    },
+    "chargingMode": {
+        "value": "SmartSolar",
+        "isChangeAllowed": True,
+        "allowedValues": ["Basic", "Smart", "SmartSolar", "PureSolar"],
+    },
+    "maximumChargingCurrent": {
+        "isChangeAllowed": True,
+        "lowerLimit": 6,
+        "upperLimit": 32,
+        "value": 16,
+    },
+    "minimumChargingCurrent": {
+        "isChangeAllowed": True,
+        "lowerLimit": 6,
+        "upperLimit": 16,
+        "value": 6,
+    },
+    "startMode": {
+        "value": "Auto",
+        "isChangeAllowed": True,
+        "allowedValues": ["Auto", "Manual"],
+    },
+}
+
+
+def test_user_settings_to_dict_emits_flat_set_user_settings_shape():
+    """to_dict() must emit the SetUserSettings PUT shape: bare scalars."""
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    result = settings.to_dict()
+
+    assert result == {
+        "cableSettings": "LockAutomatically",
+        "chargingMode": "SmartSolar",
+        "maximumChargingCurrent": 16,
+        "minimumChargingCurrent": 6,
+        "startMode": "Auto",
+    }
+
+
+def test_user_settings_to_dict_enum_fields_are_bare_strings():
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    result = settings.to_dict()
+
+    for key in ("cableSettings", "chargingMode", "startMode"):
+        assert isinstance(result[key], str), f"{key} must be a bare str, got {result[key]!r}"
+
+
+def test_user_settings_to_dict_current_fields_are_bare_ints():
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    result = settings.to_dict()
+
+    for key in ("maximumChargingCurrent", "minimumChargingCurrent"):
+        value = result[key]
+        assert not isinstance(value, dict), f"{key} must not be a value wrapper, got {value!r}"
+        # bool is an int subclass; float is not acceptable for IntSerializer.
+        assert type(value) is int, f"{key} must be a bare int, got {type(value).__name__} {value!r}"
+
+
+def test_user_settings_to_dict_uses_only_serializer_keys():
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    result = settings.to_dict()
+    assert set(result) <= _SET_USER_SETTINGS_KEYS
+
+
+def test_user_settings_to_dict_omits_read_only_metadata():
+    """isChangeAllowed / allowedValues / lowerLimit / upperLimit are GET-only."""
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    result = settings.to_dict()
+
+    for meta in _READ_ONLY_METADATA_KEYS:
+        assert meta not in result
+    for value in result.values():
+        assert not isinstance(value, dict), f"no nested value objects in a PUT body, got {value!r}"
+
+
+def test_user_settings_to_dict_is_sparse():
+    """Only populated fields are emitted — the app sends one key per request."""
+    settings = UserSettings(maximum_charging_current=UpperLowerLimitSetting(value=6))
+    assert settings.to_dict() == {"maximumChargingCurrent": 6}
+
+
+def test_user_settings_nested_real_enum_values():
+    """from_dict() unwraps the GET wrappers using real APK enum values."""
+    s = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    assert s.cable_settings is not None
+    assert s.cable_settings.value == "LockAutomatically"
+    assert s.cable_settings.allowed_values == [
+        "LockAlways",
+        "LockWhenCarConnected",
+        "LockAutomatically",
+    ]
+    assert s.charging_mode is not None
+    assert s.charging_mode.value == "SmartSolar"
+    assert s.charging_mode.allowed_values == ["Basic", "Smart", "SmartSolar", "PureSolar"]
+    assert s.maximum_charging_current is not None
+    assert s.maximum_charging_current.value == 16.0
+    assert s.maximum_charging_current.lower == 6.0
+    assert s.maximum_charging_current.upper == 32.0
+    assert s.start_mode is not None
+    assert s.start_mode.value == "Auto"
+
+
+def test_user_settings_update_is_empty_by_default():
+    """Every field is optional; an untouched update changes nothing."""
+    assert UserSettingsUpdate().to_dict() == {}
+
+
+def test_user_settings_update_emits_only_the_changed_key():
+    assert UserSettingsUpdate(maximum_charging_current=16).to_dict() == {
+        "maximumChargingCurrent": 16
+    }
+
+
+def test_user_settings_update_uses_serializer_keys():
+    update = UserSettingsUpdate(
+        start_mode="Manual",
+        cable_settings="LockWhenCarConnected",
+        minimum_charging_current=6,
+        maximum_charging_current=16,
+        charging_mode="SmartSolar",
+    )
+    assert update.to_dict() == {
+        "startMode": "Manual",
+        "cableSettings": "LockWhenCarConnected",
+        "minimumChargingCurrent": 6,
+        "maximumChargingCurrent": 16,
+        "chargingMode": "SmartSolar",
+    }
+    assert set(update.to_dict()) == _SET_USER_SETTINGS_KEYS
