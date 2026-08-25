@@ -13,6 +13,33 @@
 
 ### Changed
 
+- **Breaking:** `UserSettings.to_dict()` now emits bare scalars instead of the
+  nested GET-derived descriptors it echoed back. `SetUserSettings$$serializer.java`
+  declares five optional, nullable fields — two `Int?` and three `String?` — so
+  the wrapped shape was never a valid PUT body; the API rejected it with HTTP
+  400 (`Changing setting "cableSettings" ... is out of range`). Consumers that
+  persist, diff or compare this dict will see a major shape change: the
+  current fields echoed back the whole raw GET descriptor, limits and all.
+  (#25)
+
+  ```python
+  # before
+  UserSettings.from_dict(payload).to_dict()
+  # {"maximumChargingCurrent": {"value": 16, "isChangeAllowed": True,
+  #                             "lowerLimit": 6, "upperLimit": 32},
+  #  "cableSettings": {"value": "LockAutomatically"}}
+
+  # after
+  UserSettings.from_dict(payload).to_dict()
+  # {"maximumChargingCurrent": 16, "cableSettings": "LockAutomatically"}
+  ```
+
+  Migration: for **writes**, stop round-tripping the GET model and build a
+  sparse `UserSettingsUpdate` with only the keys you intend to change —
+  `UserSettingsUpdate(maximum_charging_current=16)`. Keep reading the wrapped
+  metadata (`is_change_allowed`, `lower_limit`, `upper_limit`) off the
+  `SettableValue` attributes on `UserSettings` itself, not off `to_dict()`.
+
 - `Vehicle.to_dict()` omits `None` fields. `Vehicle$$serializer.java` declares
   all four elements optional and `core/JsonKt.java` sets `explicitNulls=false`,
   so the app never sends `"vehicleId": null`. Consumers that persist or compare
@@ -28,15 +55,27 @@
   and no diagnostic, so this now fails locally instead. `CpmsConfig.from_dict()`
   is unchanged and still accepts partial payloads from the GET `cpms.value`
   wrapper and the `ConfigurableCpms` options list. (#31)
+- **Breaking:** `ScheduleSlot.to_dict()` now always emits all four time fields
+  and raises `ValueError` naming `ScheduleSlot.start` or `ScheduleSlot.end`
+  when either is `None`. `ScheduledChargingSession$$serializer.java:42-45`
+  declares `beginTimeHour`, `beginTimeMinute`, `endTimeHour` and
+  `endTimeMinute` required (`addElement(..., false)`) and non-nullable (four
+  bare `IntSerializer`), so the previous conditional emission could place `{}`
+  or a begin-only object into every day of a `ChargeScheduleUpdate` week plan.
+  `ScheduleSlot.from_dict()` is unchanged and still parses whatever the server
+  sends. (#28)
 
 ### Removed
 
 - **Breaking:** `ChargeSchedule.to_dict()`. `ChargeSchedulePutSettings$$serializer.java`
   declares all five elements optional and nullable, but the read model's
   `enabled: bool = False` and `randomized_time_offset_enabled: bool = False`
-  cannot express "leave unchanged" — so every PUT silently disabled the
-  schedule, reset the randomized offset and overwrote the stored week plan
-  (including on a delayed-start write). `set_charge_schedule()` now raises
+  cannot express "leave unchanged" — so every PUT always reasserted both
+  booleans and the entire week plan (including on a delayed-start write). A
+  model populated from a GET re-emitted its parsed values, but a newly or
+  sparsely constructed one applied the `False` defaults, so a write could
+  silently disable the schedule and reset the randomized offset, and always
+  overwrote the stored week plan. `set_charge_schedule()` now raises
   `TypeError` for a `ChargeSchedule` **before** any request is made, because
   `_coerce_body()` would otherwise fall back to `dataclasses.asdict()` and send
   an even worse body. Migration: build a `ChargeScheduleUpdate` with only the

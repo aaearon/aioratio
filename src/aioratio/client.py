@@ -385,11 +385,15 @@ class RatioClient:
         """PUT a sparse charge-schedule update.
 
         :class:`ChargeSchedule` (the GET model) is rejected: its ``bool``
-        fields cannot express "leave unchanged", so writing it back silently
-        disables the schedule, resets ``randomizedTimeOffsetEnabled`` and
-        overwrites the stored week plan. The check has to happen here rather
-        than in ``_coerce_body()``, which would otherwise fall back to
-        ``dataclasses.asdict()`` and send an even worse body.
+        fields cannot express "leave unchanged", so writing it back always
+        reasserts ``enabled``, ``randomizedTimeOffsetEnabled`` and the whole
+        week plan. A model populated from a GET re-emits what it parsed, but a
+        newly or sparsely constructed one applies its ``False`` defaults — so
+        the write can silently disable the schedule and reset the randomized
+        offset, and in every case overwrites the stored week plan. The check
+        has to happen here rather than in ``_coerce_body()``, which would
+        otherwise fall back to ``dataclasses.asdict()`` and send an even worse
+        body.
         """
         self._check_closed()
         if isinstance(schedule, ChargeSchedule):
