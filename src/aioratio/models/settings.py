@@ -48,6 +48,19 @@ def _integer_payload_value(field_name: str, value: float) -> int:
     return int(value)
 
 
+def _required_payload_value(field_name: str, value: str | None) -> str:
+    """Return ``value`` for a serializer field typed non-nullable ``String``.
+
+    Some nested PUT objects are optional as a whole but complete-or-nothing
+    once present: omitting a member is not a sparse update, it is a malformed
+    object. Raising here names the missing field, which the backend never
+    does — it answers a malformed value with a bare HTTP 502.
+    """
+    if value is None:
+        raise ValueError(f"{field_name} is required and must not be None")
+    return value
+
+
 @dataclass(slots=True)
 class UpperLowerLimitSetting:
     """Numeric setting with optional bounds.
@@ -562,12 +575,23 @@ class CpmsConfig:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {}
-        if self.central_system is not None:
-            out["centralSystem"] = self.central_system
-        if self.url is not None:
-            out["url"] = self.url
-        return out
+        """Emit the ``ConfiguredCpms`` PUT shape — both keys, always.
+
+        ``ConfiguredCpms$$serializer.java``:40-47 declares ``centralSystem``
+        and ``url`` as required (``addElement(..., false)``) and non-nullable
+        (bare ``StringSerializer``, no ``getNullable`` wrapper). A partially
+        populated instance therefore cannot be serialised; raise instead of
+        sending an object the API will reject with an opaque 502.
+
+        ``from_dict`` stays tolerant — the GET ``cpms.value`` payload and the
+        ``ConfigurableCpms`` options list may legitimately be incomplete.
+        """
+        return {
+            "centralSystem": _required_payload_value(
+                "CpmsConfig.central_system", self.central_system
+            ),
+            "url": _required_payload_value("CpmsConfig.url", self.url),
+        }
 
 
 @dataclass(slots=True)

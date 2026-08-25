@@ -1052,9 +1052,43 @@ def test_cpms_config_to_dict():
     assert c.to_dict() == {"centralSystem": "Operator A", "url": "ws://a.example.com"}
 
 
-def test_cpms_config_to_dict_partial():
-    c = CpmsConfig(url="ws://a.example.com")
-    assert c.to_dict() == {"url": "ws://a.example.com"}
+def test_cpms_config_from_dict_tolerates_partial_server_payload():
+    """The read path stays permissive: the server may send an incomplete object."""
+    c = CpmsConfig.from_dict({"centralSystem": "Operator A"})
+    assert c.central_system == "Operator A"
+    assert c.url is None
+
+    empty = CpmsConfig.from_dict({})
+    assert empty.central_system is None
+    assert empty.url is None
+
+
+def test_cpms_config_to_dict_missing_url_raises():
+    """``ConfiguredCpms$$serializer.java:40-47`` — both elements required, non-null."""
+    with pytest.raises(ValueError, match=r"CpmsConfig\.url"):
+        CpmsConfig(central_system="Operator A").to_dict()
+
+
+def test_cpms_config_to_dict_missing_central_system_raises():
+    with pytest.raises(ValueError, match=r"CpmsConfig\.central_system"):
+        CpmsConfig(url="ws://a.example.com").to_dict()
+
+
+def test_cpms_config_to_dict_empty_raises():
+    with pytest.raises(ValueError, match=r"CpmsConfig\.central_system"):
+        CpmsConfig().to_dict()
+
+
+def test_installer_ocpp_settings_to_dict_rejects_partial_cpms():
+    settings = InstallerOcppSettings(enabled=True, cpms=CpmsConfig(central_system="Operator A"))
+    with pytest.raises(ValueError, match=r"CpmsConfig\.url"):
+        settings.to_dict()
+
+
+def test_ocpp_settings_update_to_dict_rejects_partial_cpms():
+    update = OcppSettingsUpdate(cpms=CpmsConfig(url="ws://a.example.com"))
+    with pytest.raises(ValueError, match=r"CpmsConfig\.central_system"):
+        update.to_dict()
 
 
 # ----- InstallerOcppSettings ------------------------------------------------

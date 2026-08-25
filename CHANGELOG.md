@@ -19,6 +19,15 @@
   this dict will see fewer keys. (#27)
 - `set_solar_settings()` and `set_ocpp_settings()` also accept their new
   `*Update` types; the GET models remain accepted.
+- **Breaking:** `CpmsConfig.to_dict()` now always emits both `centralSystem`
+  and `url`, and raises `ValueError` naming the missing attribute when either
+  is `None`. `ConfiguredCpms$$serializer.java` declares both elements required
+  (`addElement(..., false)`) and non-nullable (bare `StringSerializer`), so the
+  previous conditional emission could nest `{"centralSystem": "Ratio"}` or `{}`
+  inside an OCPP settings PUT. The API answers such a body with a bare HTTP 502
+  and no diagnostic, so this now fails locally instead. `CpmsConfig.from_dict()`
+  is unchanged and still accepts partial payloads from the GET `cpms.value`
+  wrapper and the `ConfigurableCpms` options list. (#31)
 
 ### Removed
 
