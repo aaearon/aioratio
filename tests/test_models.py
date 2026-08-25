@@ -978,3 +978,156 @@ def test_session_to_dict_no_vehicle():
     restored = Session.from_dict(result)
     assert restored.session_id == "s2"
     assert restored.vehicle is None
+
+
+# ----- UserSettings PUT contract (SetUserSettings$$serializer) ----------------
+#
+# Authored verbatim from the decompiled APK:
+#   charger_settings/data/data_source/cloud/SetUserSettings$$serializer.java
+#
+#   pluginGeneratedSerialDescriptor.addElement("startMode", true);
+#   pluginGeneratedSerialDescriptor.addElement("cableSettings", true);
+#   pluginGeneratedSerialDescriptor.addElement("minimumChargingCurrent", true);
+#   pluginGeneratedSerialDescriptor.addElement("maximumChargingCurrent", true);
+#   pluginGeneratedSerialDescriptor.addElement("chargingMode", true);
+#
+#   childSerializers() -> nullable(StringSerializer), nullable(StringSerializer),
+#                         nullable(IntSerializer),    nullable(IntSerializer),
+#                         nullable(StringSerializer)
+#
+# i.e. the PUT DTO is FLAT: three nullable strings and two nullable ints.
+# The GET response, by contrast, wraps every field in a value object
+# ({value, isChangeAllowed, allowedValues} / {value, lowerLimit, upperLimit,
+# isChangeAllowed}). core/JsonKt.java sets explicitNulls=false, so unset
+# fields are omitted entirely and the app sends exactly ONE key per request.
+#
+# Real enum values (domain/model/*.java):
+#   CableMode:    LockAlways | LockWhenCarConnected | LockAutomatically
+#   StartMode:    Auto | Manual
+#   ChargingMode: Basic | Smart | SmartSolar | PureSolar
+
+_SET_USER_SETTINGS_KEYS = {
+    "startMode",
+    "cableSettings",
+    "minimumChargingCurrent",
+    "maximumChargingCurrent",
+    "chargingMode",
+}
+
+_READ_ONLY_METADATA_KEYS = (
+    "isChangeAllowed",
+    "allowedValues",
+    "lowerLimit",
+    "upperLimit",
+    "lower",
+    "upper",
+    "changeNotAllowedReason",
+)
+
+# A realistic GET /settings?id=user response body (inner userSettings object).
+_GET_USER_SETTINGS_PAYLOAD = {
+    "cableSettings": {
+        "value": "LockAutomatically",
+        "isChangeAllowed": True,
+        "allowedValues": ["LockAlways", "LockWhenCarConnected", "LockAutomatically"],
+    },
+    "chargingMode": {
+        "value": "SmartSolar",
+        "isChangeAllowed": True,
+        "allowedValues": ["Basic", "Smart", "SmartSolar", "PureSolar"],
+    },
+    "maximumChargingCurrent": {
+        "isChangeAllowed": True,
+        "lowerLimit": 6,
+        "upperLimit": 32,
+        "value": 16,
+    },
+    "minimumChargingCurrent": {
+        "isChangeAllowed": True,
+        "lowerLimit": 6,
+        "upperLimit": 16,
+        "value": 6,
+    },
+    "startMode": {
+        "value": "Auto",
+        "isChangeAllowed": True,
+        "allowedValues": ["Auto", "Manual"],
+    },
+}
+
+
+def test_user_settings_to_dict_emits_flat_set_user_settings_shape():
+    """to_dict() must emit the SetUserSettings PUT shape: bare scalars."""
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    result = settings.to_dict()
+
+    assert result == {
+        "cableSettings": "LockAutomatically",
+        "chargingMode": "SmartSolar",
+        "maximumChargingCurrent": 16,
+        "minimumChargingCurrent": 6,
+        "startMode": "Auto",
+    }
+
+
+def test_user_settings_to_dict_enum_fields_are_bare_strings():
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    result = settings.to_dict()
+
+    for key in ("cableSettings", "chargingMode", "startMode"):
+        assert isinstance(result[key], str), f"{key} must be a bare str, got {result[key]!r}"
+
+
+def test_user_settings_to_dict_current_fields_are_bare_ints():
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    result = settings.to_dict()
+
+    for key in ("maximumChargingCurrent", "minimumChargingCurrent"):
+        value = result[key]
+        assert not isinstance(value, dict), f"{key} must not be a value wrapper, got {value!r}"
+        # bool is an int subclass; float is not acceptable for IntSerializer.
+        assert type(value) is int, f"{key} must be a bare int, got {type(value).__name__} {value!r}"
+
+
+def test_user_settings_to_dict_uses_only_serializer_keys():
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    result = settings.to_dict()
+    assert set(result) <= _SET_USER_SETTINGS_KEYS
+
+
+def test_user_settings_to_dict_omits_read_only_metadata():
+    """isChangeAllowed / allowedValues / lowerLimit / upperLimit are GET-only."""
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    result = settings.to_dict()
+
+    for meta in _READ_ONLY_METADATA_KEYS:
+        assert meta not in result
+    for value in result.values():
+        assert not isinstance(value, dict), f"no nested value objects in a PUT body, got {value!r}"
+
+
+def test_user_settings_to_dict_is_sparse():
+    """Only populated fields are emitted — the app sends one key per request."""
+    settings = UserSettings(maximum_charging_current=UpperLowerLimitSetting(value=6))
+    assert settings.to_dict() == {"maximumChargingCurrent": 6}
+
+
+def test_user_settings_nested_real_enum_values():
+    """from_dict() unwraps the GET wrappers using real APK enum values."""
+    s = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    assert s.cable_settings is not None
+    assert s.cable_settings.value == "LockAutomatically"
+    assert s.cable_settings.allowed_values == [
+        "LockAlways",
+        "LockWhenCarConnected",
+        "LockAutomatically",
+    ]
+    assert s.charging_mode is not None
+    assert s.charging_mode.value == "SmartSolar"
+    assert s.charging_mode.allowed_values == ["Basic", "Smart", "SmartSolar", "PureSolar"]
+    assert s.maximum_charging_current is not None
+    assert s.maximum_charging_current.value == 16.0
+    assert s.maximum_charging_current.lower == 6.0
+    assert s.maximum_charging_current.upper == 32.0
+    assert s.start_mode is not None
+    assert s.start_mode.value == "Auto"

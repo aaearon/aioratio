@@ -914,3 +914,115 @@ async def test_cpms_options_unknown_status_propagates(client_with_fake_transport
     fake.queue(RatioApiError("legacy error without status"))
     with pytest.raises(RatioApiError):
         await client.cpms_options("SER1")
+
+
+# ---------------------------------------------------------------------------
+# set_user_settings PUT wire contract
+#
+# SetUserSettings$$serializer.java descriptor (verbatim):
+#   addElement("startMode", true)              -> nullable String
+#   addElement("cableSettings", true)          -> nullable String
+#   addElement("minimumChargingCurrent", true) -> nullable Int
+#   addElement("maximumChargingCurrent", true) -> nullable Int
+#   addElement("chargingMode", true)           -> nullable String
+#
+# ChargerSettingsCloudDataSource.setUserIntSetting() constructs
+#   new SetUserSettings(null, null, null, boxInt(i), null, 23, null)
+# and core/JsonKt.java sets explicitNulls=false, so the real wire body is
+#   {"transactionId": "...", "userSettings": {"maximumChargingCurrent": 16}}
+# ---------------------------------------------------------------------------
+
+_GET_USER_SETTINGS_PAYLOAD: dict[str, Any] = {
+    "cableSettings": {
+        "value": "LockAutomatically",
+        "isChangeAllowed": True,
+        "allowedValues": ["LockAlways", "LockWhenCarConnected", "LockAutomatically"],
+    },
+    "chargingMode": {
+        "value": "SmartSolar",
+        "isChangeAllowed": True,
+        "allowedValues": ["Basic", "Smart", "SmartSolar", "PureSolar"],
+    },
+    "maximumChargingCurrent": {
+        "isChangeAllowed": True,
+        "lowerLimit": 6,
+        "upperLimit": 32,
+        "value": 16,
+    },
+    "minimumChargingCurrent": {
+        "isChangeAllowed": True,
+        "lowerLimit": 6,
+        "upperLimit": 16,
+        "value": 6,
+    },
+    "startMode": {
+        "value": "Auto",
+        "isChangeAllowed": True,
+        "allowedValues": ["Auto", "Manual"],
+    },
+}
+
+
+async def test_set_user_settings_sparse_max_current_body(client_with_fake_transport):
+    """Only max current populated -> the body carries exactly that one key."""
+    from aioratio.models import UpperLowerLimitSetting
+
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    settings = UserSettings(maximum_charging_current=UpperLowerLimitSetting(value=6))
+    await client.set_user_settings("S1", settings)
+
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["params"] == {"id": "user"}
+    body = call["json"]
+    assert set(body) == {"transactionId", "userSettings"}
+    assert isinstance(body["transactionId"], str)
+    assert body["userSettings"] == {"maximumChargingCurrent": 6}
+
+
+async def test_set_user_settings_max_current_does_not_resend_cable_settings_object(
+    client_with_fake_transport,
+):
+    """Regression: HTTP 400 'Changing setting "cableSettings" ... is out of range'.
+
+    A UserSettings loaded from the GET response and mutated to change only the
+    maximum charging current must never PUT ``cableSettings`` as a nested
+    ``{"value": ...}`` object — the server rejects the whole request.
+    """
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    assert settings.maximum_charging_current is not None
+    settings.maximum_charging_current.value = 6
+
+    await client.set_user_settings("S1", settings)
+
+    inner = fake.calls[0]["json"]["userSettings"]
+    assert not isinstance(inner.get("cableSettings"), dict), (
+        f"cableSettings must not be a nested object in a PUT body: {inner.get('cableSettings')!r}"
+    )
+    assert inner["maximumChargingCurrent"] == 6
+    for key, value in inner.items():
+        assert not isinstance(value, dict), f"{key} must be a bare scalar, got {value!r}"
+
+
+async def test_set_user_settings_put_body_never_carries_read_only_metadata(
+    client_with_fake_transport,
+):
+    client, fake = client_with_fake_transport
+    fake.queue(None)
+    settings = UserSettings.from_dict(_GET_USER_SETTINGS_PAYLOAD)
+    await client.set_user_settings("S1", settings)
+
+    inner = fake.calls[0]["json"]["userSettings"]
+    serialised = json.dumps(inner)
+    for meta in ("isChangeAllowed", "allowedValues", "lowerLimit", "upperLimit"):
+        assert meta not in serialised, f"{meta} is GET-only metadata, not a PUT field"
+    assert set(inner) <= {
+        "startMode",
+        "cableSettings",
+        "minimumChargingCurrent",
+        "maximumChargingCurrent",
+        "chargingMode",
+    }
